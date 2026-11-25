@@ -1,4 +1,4 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs, ActionSubject, RecordInputRef } from './action-input-schema.ts'
 import { resolveCorrectionRequestBasis } from './correction-request-basis.ts'
 import type { DecodedHistory } from './history-schema.ts'
@@ -7,7 +7,6 @@ import type { CanonicalRecord } from './record-schema.ts'
 import type { Result } from './result.ts'
 import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { accounted, resolvedOutputValid } from './review-context-authentication.ts'
-import { validateDecisionBindings } from './review-decision.ts'
 import { historyFor, recordsOf, workflowOperationProblem } from './workflow-control.ts'
 
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
@@ -44,7 +43,6 @@ function correctionDecision(
   source: Contribution,
   inventory: Extract<CanonicalRecord, { kind: 'review-attempt' }>,
   inputs: ActionInputs,
-  catalogues: ReviewClassCatalogues,
 ): Result<{ decision: Decision; decisionRef: RecordInputRef }> {
   const decisions = inputs.stageSources.filter(
     (item) => item.record.kind === 'decision' && item.selector === '/payload',
@@ -64,8 +62,6 @@ function correctionDecision(
     !source.inputs.includes(decision.recordId)
   )
     return failure()
-  const bindings = validateDecisionBindings(decision, history, catalogues)
-  if (!bindings.admissible) return { ok: false, diagnostics: bindings.diagnostics }
   return { ok: true, value: { decision, decisionRef } }
 }
 
@@ -99,6 +95,7 @@ function correctionInventory(
   history: DecodedHistory,
   records: CanonicalRecord[],
   source: Contribution,
+  histories: readonly DecodedHistory[],
 ): Result<{
   inventory: Extract<CanonicalRecord, { kind: 'review-attempt' }>
   requestId: string
@@ -123,8 +120,7 @@ function correctionInventory(
   if (
     slots.length !== 1 ||
     slot?.action === undefined ||
-    !resolvedOutputValid(source, slot, inventory.recordId, slot.action.inputs) ||
-    !validateActionInputs(slot.action.inputs).ok ||
+    !resolvedOutputValid(source, slot, inventory.recordId, slot.action.inputs, histories) ||
     slot.action.inputs.manifest.purpose !== 'correction' ||
     slot.action.inputs.fingerprint !== inventory.payload.actionInputDigest ||
     slot.action.inputs.manifest.code.head !== inventory.payload.candidateGitSHA
@@ -167,7 +163,7 @@ export function resolveHistoricalCorrectionBasis(input: {
   )
     return failure()
   const records = recordsOf(history)
-  const selectedInventory = correctionInventory(history, records, source)
+  const selectedInventory = correctionInventory(history, records, source, input.histories)
   if (!selectedInventory.ok) return selectedInventory
   const { inventory, requestId, inputs } = selectedInventory.value
   const requests = records.filter((r) => r.kind === 'fix-request' && r.recordId === requestId)
@@ -180,10 +176,10 @@ export function resolveHistoricalCorrectionBasis(input: {
     !source.inputs.includes(fix.recordId)
   )
     return failure()
-  const selectedDecision = correctionDecision(history, records, source, inventory, inputs, input.catalogues)
+  const selectedDecision = correctionDecision(history, records, source, inventory, inputs)
   if (!selectedDecision.ok) return selectedDecision
   const { decision, decisionRef } = selectedDecision.value
-  const resolved = resolveCorrectionRequestBasis(history, fix, decision, input.catalogues)
+  const resolved = resolveCorrectionRequestBasis(history, fix, decision, input.catalogues, input.histories)
   if (!resolved.ok) return resolved
   const basis = resolved.value
   const subject = inputs.manifest.subject

@@ -22,6 +22,7 @@ const identity = (ref: PinnedFileRef) => JSON.stringify([ref.repository, ref.com
 export function fixRecoveryDecisionCatalogueRefs(input: {
   decision: Extract<CanonicalRecord, { kind: 'decision' }>
   history: DecodedHistory
+  histories: readonly DecodedHistory[]
 }): Result<PinnedFileRef[]> {
   const records = recordsOf(input.history)
   const refs = new Map<string, PinnedFileRef>()
@@ -32,7 +33,7 @@ export function fixRecoveryDecisionCatalogueRefs(input: {
     if (matches.length !== 1 || source?.kind !== 'contribution')
       return fail('Decision source contribution is not unique')
     if (source.payload.findings === null) continue
-    const action = originalContributionAction(source, input.history)
+    const action = originalContributionAction(source, input.history, input.histories)
     if (!action.ok) return action
     const ref = reviewClassCatalogueRef(action.value)
     if (!ref.ok) return ref

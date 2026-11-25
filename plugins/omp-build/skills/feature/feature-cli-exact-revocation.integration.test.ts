@@ -1,12 +1,14 @@
 import { expect, it } from 'vitest'
 import type { Gh } from '../../adapters/github/types.ts'
 import { bindExternalRef, decodeHistory, readGitHubHistory, resolveAcceptedSpec } from '../../dist/contracts.js'
+import { actionInputDigest } from '../../engine/action-input.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
+import { ACTION_RECEIPT_FORMAT } from '../../engine/workflow-receipt-schema.ts'
 import { admitFeature } from '../../omp/omp-feature-admission.ts'
 import type { ContinueFeatureInput } from '../../roxabi/feature-contract.ts'
 import { withRoxabiGitHubPolicy } from '../../roxabi/github-policy.ts'
 import { createInstalledUwOperations } from '../../roxabi/uw-installed-operations.ts'
-import { fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
+import { acceptedActionInputs, fixtureCatalogueGhResponse } from '../../testing/action-input-fixtures.ts'
 import { appendSimIssueComments, git, readSim, writeSim } from '../../testing/sandbox/sandbox-repository.ts'
 import {
   acceptedDigest,
@@ -225,6 +227,64 @@ it('revokes an intact PR binding despite an incompatible historical assessment a
   )
   expect(f.bare('rev-parse', ref)).toBe(f.tip)
   expect(readSim(f.box).calls.some((args) => args[0] === 'pr' && args[1] === 'merge')).toBe(false)
+})
+
+it('publishes exact abandonment without reading an unavailable blob pinned by an unrelated receipt', async () => {
+  const f = world(true)
+  const historical = acceptedActionInputs(f.mandate, 'plan')
+  const pin = {
+    source: 'git-file' as const,
+    repository,
+    commit: 'd'.repeat(40),
+    path: 'unavailable-history.txt',
+    digest: 'e'.repeat(64),
+  }
+  const manifest = { ...historical.manifest, expandedContext: [pin] }
+  const receipt = buildRecord({
+    ...scope,
+    version: 1,
+    recordId: 'unrelated-plan-start',
+    operationId: 'op-unrelated-plan-start',
+    runId: f.mandate.runId,
+    kind: 'action-receipt',
+    payload: {
+      format: ACTION_RECEIPT_FORMAT,
+      phase: 'start',
+      action: 'plan',
+      actionId: 'unrelated-plan',
+      mandate: fixtures.mandateRef(f.mandate),
+      exactInputs: {
+        mandateId: f.mandate.recordId,
+        specDigest: f.spec.ownSpec.version,
+        amendsReviewActionId: null,
+        requiredBlockers: [],
+      },
+      inputs: { ...historical, manifest, fingerprint: actionInputDigest(manifest) },
+    },
+  })
+  if (!receipt.ok) throw new Error(JSON.stringify(receipt.diagnostics))
+  appendSimIssueComments(f.box, '42', [frame(receipt.value)], 'operator', date)
+  const blobLookups: string[][] = []
+  const gh: Gh = async (cwd, args) => {
+    if (args.includes(`expression=${pin.commit}:${pin.path}`)) {
+      blobLookups.push(args)
+      throw new Error('Unrelated historical blob is unavailable')
+    }
+    return f.gh(cwd, args)
+  }
+  const { input, approved, read } = await revocationFixture(f, prReference, gh)
+  const unrelated = { scope, recordId: receipt.value.recordId, kind: 'action-receipt' as const }
+  expect(bindExternalRef(unrelated, await read())).toMatchObject({ ok: true })
+
+  expect(await admitFeature({ ...input, control: 'abandon' })).toEqual({ kind: 'abandoned', confirmed: true })
+  expect(blobLookups).toEqual([])
+  expect(approved).toHaveLength(1)
+  const [recordId] = approved
+  if (recordId === undefined) throw new Error('Expected the exact revocation')
+  expect(bindExternalRef({ scope, recordId, kind: 'operator-control' }, await read())).toMatchObject({
+    ok: true,
+    value: { payload: { control: 'abandon', mandate: fixtures.mandateRef(f.mandate) } },
+  })
 })
 
 it('revokes the PR-bound mandate without selecting another active mandate on the issue', async () => {

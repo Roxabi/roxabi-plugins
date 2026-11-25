@@ -6,6 +6,7 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { onTestFinished } from 'vitest'
 import { nativeComment } from '../adapters/__tests__/github-workflow-support.ts'
 import type { Gh } from '../adapters/github/types.ts'
+import type { PinnedFileRef } from '../engine/action-input-refs.ts'
 import { createOperatorConfirmation } from '../omp/omp-operator-confirmation.ts'
 import { createInstalledUwOperations } from '../roxabi/uw-installed-operations.ts'
 import { fixtureCauseGhResponse } from './cause-input-fixture.ts'
@@ -37,10 +38,16 @@ export async function installedMultiSisterFixture(
     composedParent?: boolean
     cwd?: string
     confirm?: (title: string, detail: string) => Promise<boolean>
+    repositoryReferences?: readonly PinnedFileRef[]
     afterParentRelation?: (parent: number, child: number) => void
   } = {},
 ) {
-  const data = multiSisterFixture(count, options.report ? 'report' : 'sister-blocking', options.composedParent ?? false)
+  const data = multiSisterFixture(
+    count,
+    options.report ? 'report' : 'sister-blocking',
+    options.composedParent ?? false,
+    options.repositoryReferences,
+  )
   const head = options.head ?? 'a'.repeat(40)
   const base = options.base ?? 'b'.repeat(40)
   let prior = data.own

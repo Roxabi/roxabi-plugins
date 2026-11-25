@@ -1,5 +1,5 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
-import { expandedGitPinsObserved } from './historical-git-pins.ts'
+import { canonicalValueDigest } from './action-input.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -10,7 +10,7 @@ import { isInitialPullRequestReviewInventory } from './review-schema.ts'
 type Root = Extract<CanonicalRecord, { kind: 'review-attempt' }>
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
 
-function successorOf(history: DecodedHistory, root: Root, successor: Root, negative: Contribution): boolean {
+function successorOf(root: Root, successor: Root, negative: Contribution): boolean {
   if (!isInitialPullRequestReviewInventory(root.payload) || !isInitialPullRequestReviewInventory(successor.payload))
     return false
   const old = root.payload.inputSnapshot
@@ -49,8 +49,6 @@ function successorOf(history: DecodedHistory, root: Root, successor: Root, negat
     same(slots(root.payload), slots(successor.payload)) &&
     same(oldManifest, newManifest) &&
     same(old.stageSources, fresh.stageSources) &&
-    validateActionInputs(fresh).ok &&
-    expandedGitPinsObserved([history], fresh) &&
     old.fingerprint !== fresh.fingerprint &&
     ref.length === 1 &&
     additions.some((item) => same(item, ref[0])) &&
@@ -66,13 +64,19 @@ export function directReviewContextSuccessors(
   contributions: readonly Contribution[],
   root: Root,
   negative: Contribution,
+  histories: readonly DecodedHistory[] = [history],
 ): Root[] {
-  const authenticated = roots.filter((candidate) => accounted(history, candidate))
+  const authenticated = roots.filter(
+    (candidate) =>
+      isInitialPullRequestReviewInventory(candidate.payload) &&
+      accounted(history, candidate) &&
+      authenticateHistoricalActionInputs(candidate.payload.inputSnapshot, histories).ok,
+  )
   const edges = (from: Root): Root[] => {
     const negatives = contributions.filter((entry) => negativeFor(history, from, entry))
-    return authenticated.filter((candidate) => negatives.some((entry) => successorOf(history, from, candidate, entry)))
+    return authenticated.filter((candidate) => negatives.some((entry) => successorOf(from, candidate, entry)))
   }
-  const candidates = authenticated.filter((candidate) => successorOf(history, root, candidate, negative))
+  const candidates = authenticated.filter((candidate) => successorOf(root, candidate, negative))
   const reaches = (from: Root, target: Root, seen: Set<string>): boolean => {
     if (seen.has(from.recordId)) return false
     seen.add(from.recordId)
@@ -89,6 +93,7 @@ export function directReviewContextSuccessors(
 export function reviewContextLineage(
   history: DecodedHistory,
   records: ReadonlyMap<string, CanonicalRecord>,
+  histories: readonly DecodedHistory[] = [history],
 ): {
   superseded: Set<string>
   diagnostics: Diagnostic[]
@@ -118,7 +123,7 @@ export function reviewContextLineage(
       continue
     }
     const successors = negatives.flatMap((entry) =>
-      directReviewContextSuccessors(history, roots, contributions, root, entry),
+      directReviewContextSuccessors(history, roots, contributions, root, entry, histories),
     )
     const finals = [...records.values()].filter(
       (record) => record.kind === 'review' && record.payload.inventoryIds.includes(root.recordId),

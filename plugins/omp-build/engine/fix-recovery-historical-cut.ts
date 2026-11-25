@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { FixRecoveryObservation } from './fix-recovery-control-schema.ts'
 import { commentAsPartPin, partPinsEqual } from './fix-recovery-part-pins.ts'
+import { inheritObservedGitPins } from './historical-git-pins.ts'
 import { looseHeaderClue, operationAuthority, withClaimedKinds } from './history-authority.ts'
 import { decodeParts, frameFrom } from './history-framing.ts'
 import type { DecodedHistory, History } from './history-schema.ts'
@@ -62,6 +63,7 @@ function reconstructScope(
     comments: selected.value,
     diagnostics: [],
   }
+  inheritObservedGitPins(actual.source, source)
   return decodeHistoricalSource(source)
 }
 

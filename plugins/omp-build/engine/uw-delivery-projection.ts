@@ -2,6 +2,12 @@ import { canonicalValueDigest } from './action-input.ts'
 import type { RecordInputRef } from './action-input-refs.ts'
 import { criterionDeclarationSchema } from './criterion-evidence-schema.ts'
 import { criterionVerdictSchema } from './criterion-verdict-schema.ts'
+import {
+  authenticatedReceiptActionInputs,
+  authenticateHistoricalActionInputs,
+  recordRefDiagnostics,
+  selectedRecordValue,
+} from './historical-action-inputs.ts'
 import { sameOwnSpecRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
 import { type Diagnostic, type Scope, specReportSchema } from './record-values.ts'
@@ -18,17 +24,6 @@ import type { AcceptedOwnSpec } from './workflow-accepted-spec-types.ts'
 import { historyFor, recordsOf } from './workflow-control.ts'
 import { selectedMandate } from './workflow-mandate-admission.ts'
 
-function selectedValue(record: CanonicalRecord, selector: string): unknown {
-  let value: unknown = record
-  for (const raw of selector.split('/').slice(1)) {
-    if (value === null || typeof value !== 'object') return undefined
-    const key = raw.replaceAll('~1', '/').replaceAll('~0', '~')
-    if (!Object.hasOwn(value, key)) return undefined
-    value = Object.getOwnPropertyDescriptor(value, key)?.value
-  }
-  return value
-}
-
 function currentAccepted(observation: UwCompletionObservation, uw: Scope): UwResult<AcceptedOwnSpec> {
   const history = historyFor(uw, observation.histories)
   if (history === null) return deliveryFailure(uw, 'delivery-history-incomplete', 'UW history is absent')
@@ -38,6 +33,17 @@ function currentAccepted(observation: UwCompletionObservation, uw: Scope): UwRes
   return accepted.ok
     ? { ok: true, value: accepted.spec }
     : deliveryFailure(uw, accepted.reason, accepted.evidence.map((item) => item.message).join('; '))
+}
+
+function declarationRecord(observation: UwCompletionObservation, pin: RecordInputRef): CanonicalRecord | null {
+  const bound = authenticatedDeliveryRecord(observation, pin.record)
+  if (!bound.ok || recordRefDiagnostics('Delivery declaration', pin, observation.histories).length !== 0) return null
+  if (
+    bound.value.kind === 'action-receipt' &&
+    !authenticatedReceiptActionInputs(bound.value.payload, observation.histories)
+  )
+    return null
+  return bound.value
 }
 
 function declarationRows(
@@ -55,9 +61,9 @@ function declarationRows(
     if (!/^\/payload\/(?:structured\/criteria|criterionReceipt\/criteria)\/\d+$/.test(selector)) continue
     const key = `${pin.record.scope.repository}\0${pin.record.scope.target}\0${pin.record.recordId}\0${selector}`
     if (seen.has(key)) continue
-    const bound = authenticatedDeliveryRecord(observation, pin.record)
-    if (!bound.ok) continue
-    const raw = selectedValue(bound.value, selector)
+    const record = declarationRecord(observation, pin)
+    if (record === null) continue
+    const raw = selectedRecordValue(record, selector)
     const declaration = criterionDeclarationSchema.safeParse(raw)
     if (!declaration.success || !sameOwnSpecRef(declaration.data.target.spec, spec.effective.own)) continue
     seen.add(key)
@@ -86,7 +92,7 @@ function contributionCandidates(
   return candidates
 }
 
-function verdictRows(selected: SelectedDeliveryReview): UwDeliveryVerdict[] {
+function verdictRows(selected: SelectedDeliveryReview, observation: UwCompletionObservation): UwDeliveryVerdict[] {
   const judgment = selected.decision.payload.judgment
   if (judgment.purpose !== 'review') return []
   const records = new Map(recordsOf(selected.history).map((record) => [record.recordId, record]))
@@ -95,6 +101,8 @@ function verdictRows(selected: SelectedDeliveryReview): UwDeliveryVerdict[] {
   for (const ref of judgment.criterionVerdicts) {
     const contribution = records.get(ref.contributionId)
     if (contribution?.kind !== 'contribution') continue
+    const inputs = contribution.payload.host.action?.inputs
+    if (inputs !== undefined && !authenticateHistoricalActionInputs(inputs, observation.histories).ok) continue
     for (const candidate of contributionCandidates(contribution)) {
       const value = criterionVerdictSchema.safeParse(candidate.value)
       if (
@@ -157,7 +165,7 @@ export function projectUwDelivery(
       uw,
       effective,
       declarations: declarationRows(observation, selected.value),
-      verdicts: verdictRows(selected.value),
+      verdicts: verdictRows(selected.value, observation),
       diagnostics,
     },
   }

@@ -1,10 +1,14 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { RecordInputRef } from './action-input-refs.ts'
 import { type ActionInputs, actionInputsSchema } from './action-input-schema.ts'
 import { resolveCauseActionInputs } from './cause-adjudication.ts'
 import type { DispositionSource } from './cause-disposition.ts'
-import { recordRefDiagnostics } from './delivery-observation-authentication.ts'
 import type { CauseContext } from './finding-target.ts'
+import {
+  authenticateHistoricalActionInputs,
+  recordRefDiagnostics,
+  selectedRecordValue,
+} from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -17,18 +21,6 @@ import { bindExternalRef } from './workflow-control.ts'
 export type PreparedCauseCapture =
   | { kind: 'action'; input: RecordInputRef }
   | { kind: 'raw'; sources: readonly [ExternalRecordRef, ...ExternalRecordRef[]] }
-
-function selected(value: unknown, selector: string): unknown {
-  if (selector === '') return value
-  if (!selector.startsWith('/')) return undefined
-  let result = value
-  for (const part of selector.slice(1).split('/')) {
-    if (result === null || typeof result !== 'object') return undefined
-    const key = part.replaceAll('~1', '/').replaceAll('~0', '~')
-    result = (result as Record<string, unknown>)[key]
-  }
-  return result
-}
 
 const refusal = (message: string): Result<never> => ({
   ok: false,
@@ -65,6 +57,8 @@ export function decisionCauseCapture(
   const index = inventory.value.payload.slots.findIndex((slot) => slot.slotId === slotId)
   const inputs = inventory.value.payload.slots[index]?.action?.inputs
   if (index < 0 || inputs === undefined) return refusal('Decision producer slot has no action inputs')
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories)
+  if (!authenticated.ok) return authenticated
   return {
     ok: true,
     value: {
@@ -90,9 +84,8 @@ function parseCapturedActionInputs(record: CanonicalRecord, selector: string): R
       (/^\/payload\/slots\/(?:0|[1-9]\d*)\/action\/inputs$/.test(selector) || selector === '/payload/inputSnapshot')) ||
     (record.kind === 'action-receipt' && selector === '/payload/inputs')
   if (!canonicalSelector) return refusal('Cause capture does not select a canonical action input')
-  const parsed = actionInputsSchema.safeParse(selected(record, selector))
-  if (!parsed.success || !validateActionInputs(parsed.data).ok)
-    return refusal('Cause capture is not valid action inputs')
+  const parsed = actionInputsSchema.safeParse(selectedRecordValue(record, selector))
+  if (!parsed.success) return refusal('Cause capture is not valid action inputs')
   return { ok: true, value: parsed.data }
 }
 
@@ -106,7 +99,9 @@ function authenticateActionCapture(input: CaptureAuthentication): Result<ActionI
   if (!record?.ok) return refusal('Cause capture record is unavailable')
   const parsed = parseCapturedActionInputs(record.value, capture.selector)
   if (!parsed.ok) return parsed
-  const action = parsed.value
+  const authenticated = authenticateHistoricalActionInputs(parsed.value, histories)
+  if (!authenticated.ok) return authenticated
+  const action = authenticated.value
   if (
     action.manifest.spec.kind !== 'accepted' ||
     canonicalValueDigest(action.manifest.spec.effective) !== canonicalValueDigest(input.context.effective)
@@ -124,7 +119,7 @@ function authenticateDecisionCapture(
   if (action === null) return refusal('Decision requires its synthesis action capture')
   const history = histories.find((item) => equalScope(item.source.scope, source.decision))
   if (!history) return refusal('Decision history is unavailable')
-  const producer = resolveCauseActionInputs({ decision: source.decision, history, context: input.context })
+  const producer = resolveCauseActionInputs({ decision: source.decision, history, context: input.context, histories })
   if (!producer.ok) return producer
   if (!producer.value.some((item) => canonicalValueDigest(item) === canonicalValueDigest(action)))
     return refusal('Cause capture is not the decision synthesis action')
@@ -167,7 +162,7 @@ function authenticateDeclaredProducer(
   history: DecodedHistory,
   action: ActionInputs | null,
 ): Result<null> {
-  const producer = originalContributionAction(contribution, history)
+  const producer = originalContributionAction(contribution, history, input.histories)
   if (!producer.ok) return producer
   if (
     producer.value.manifest.spec.kind !== 'accepted' ||

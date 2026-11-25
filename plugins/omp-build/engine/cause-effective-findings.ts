@@ -1,9 +1,10 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
 import { discoverCauseDispositionHeads } from './cause-heads.ts'
 import { causeDispositionLineage } from './cause-lineage.ts'
 import { validateCauseDispositionRecords } from './cause-record-validation.ts'
 import { observationRefDiagnostics } from './delivery-observation-authentication.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -176,15 +177,13 @@ type EffectiveFindingInput = {
 }
 
 function selectedRejectedFindingIds(input: EffectiveFindingInput, historical: boolean): Result<readonly string[]> {
-  if (
-    !validateActionInputs(input.action).ok ||
-    input.action.manifest.purpose !== 'review' ||
-    input.action.manifest.spec.kind !== 'accepted'
-  )
+  if (input.action.manifest.purpose !== 'review' || input.action.manifest.spec.kind !== 'accepted')
     return {
       ok: false,
       diagnostics: [diagnostic('cause-context-unbound', 'A fresh accepted-Spec review action is required')],
     }
+  const authenticated = authenticateHistoricalActionInputs(input.action, input.histories)
+  if (!authenticated.ok) return authenticated
   const selected = input.action.manifest.deliveryData.filter((item) => item.role === 'cause-state')
   const pins = selected.filter((item) => item.record.kind === 'cause-disposition' && item.selector === '/payload')
   const context: Context = {

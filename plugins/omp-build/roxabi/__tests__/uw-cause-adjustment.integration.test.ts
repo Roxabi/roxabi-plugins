@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
+import { causeEvidence } from '../../testing/cause-input-fixture.ts'
 import { runCauseAdjustmentScenario } from './uw-cause-adjustment-fixture.ts'
 
 it('withdraws the causal wait only after the confirmed native blocker removal and authenticates its replay', async () => {
@@ -46,6 +48,22 @@ it('withdraws the causal wait only after the confirmed native blocker removal an
   })
   expect(proof.replay?.dependency?.state).toBe('held')
   expect(proof.replay?.completion?.state).not.toBe('complete')
+})
+
+it('observes a previously uncited producer repository reference before requesting confirmation', async () => {
+  const bytes = Buffer.from('The original review retained this dependency migration note.\n')
+  const ref = {
+    ...causeEvidence,
+    path: 'docs/dependency-migration.txt',
+    digest: createHash('sha256').update(bytes).digest('hex'),
+  }
+  const proof = await runCauseAdjustmentScenario('confirm', { ref, bytes })
+  expect(proof.before.wait).toMatchObject({ state: 'required' })
+  expect(proof.citedBlobReadsBeforeRequest).toBe(0)
+  expect(proof.confirmations).toHaveLength(1)
+  expect(proof.citedBlobReadsAtConfirmation).toBe(1)
+  expect(proof.result.status, JSON.stringify(proof.result)).toBe('adjusted')
+  expect(proof.canonicalControl).toMatchObject({ payload: { proposal: { references: [ref] } } })
 })
 
 it('declining the native confirmation leaves the graph and causal chain untouched', async () => {

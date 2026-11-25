@@ -1,6 +1,5 @@
-import { validateActionInputs } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
-import { expandedGitPinsObserved } from './historical-git-pins.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -40,7 +39,11 @@ function initialInventory(
   return null
 }
 
-function selectedInventory(decision: ReviewDecision, history: DecodedHistory): Inventory | null {
+function selectedInventory(
+  decision: ReviewDecision,
+  history: DecodedHistory,
+  histories: readonly DecodedHistory[],
+): Inventory | null {
   const records = recordsOf(history)
   const sources = records.filter(
     (record): record is Extract<CanonicalRecord, { kind: 'contribution' }> =>
@@ -61,15 +64,19 @@ function selectedInventory(decision: ReviewDecision, history: DecodedHistory): I
   const selected = distinct.length === 1 ? distinct[0] : null
   if (selected === null || selected.payload.stage !== 'initial' || selected.payload.purpose !== 'review') return null
   const snapshot = selected.payload.inputSnapshot
-  if (!validateActionInputs(snapshot).ok || selected.payload.actionInputDigest !== snapshot.fingerprint) return null
-  if (!expandedGitPinsObserved([history], snapshot)) return null
+  if (selected.payload.actionInputDigest !== snapshot.fingerprint) return null
+  if (!authenticateHistoricalActionInputs(snapshot, histories).ok) return null
   if (!reviewSubjectBound(selected, selected.payload) || !equalScope(selected, history.source.scope)) return null
   if (selected.payload.candidateGitSHA !== snapshot.manifest.code.head) return null
   return selected
 }
 
-export function reviewInputsFromInventory(decision: ReviewDecision, history: DecodedHistory): ActionInputs | null {
-  const root = selectedInventory(decision, history)
+export function reviewInputsFromInventory(
+  decision: ReviewDecision,
+  history: DecodedHistory,
+  histories: readonly DecodedHistory[] = [history],
+): ActionInputs | null {
+  const root = selectedInventory(decision, history, histories)
   if (root === null || root.payload.stage !== 'initial' || root.payload.purpose !== 'review') return null
   return root.payload.inputSnapshot
 }
@@ -77,13 +84,14 @@ export function reviewInputsFromInventory(decision: ReviewDecision, history: Dec
 export function reviewRootFromDecision(
   decision: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
+  histories: readonly DecodedHistory[] = [history],
 ): Result<Inventory> {
   const scope = history.source.scope
   const bound = bindExternalRef({ scope, kind: 'decision', recordId: decision.recordId }, history)
   if (!bound.ok) return bound
   if (JSON.stringify(bound.value) !== JSON.stringify(decision) || decision.payload.judgment.purpose !== 'review')
     return fail([diagnostic('unconfirmed', 'Selected review decision is not authenticated')])
-  const root = selectedInventory(decision.payload.judgment, history)
+  const root = selectedInventory(decision.payload.judgment, history, histories)
   if (root === null) return fail([diagnostic('unconfirmed', 'Selected review has no unique initial inventory')])
   const rootBound = bindExternalRef({ scope, kind: 'review-attempt', recordId: root.recordId }, history)
   if (!rootBound.ok) return rootBound
@@ -94,8 +102,9 @@ export function reviewRootFromDecision(
 export function reviewCandidateCode(
   decision: ReviewDecision,
   history: DecodedHistory,
+  histories: readonly DecodedHistory[] = [history],
 ): { repository: string; commit: string } | null {
-  const inventory = selectedInventory(decision, history)
+  const inventory = selectedInventory(decision, history, histories)
   if (inventory === null || inventory.payload.stage !== 'initial' || inventory.payload.purpose !== 'review') return null
   return {
     repository: inventory.payload.inputSnapshot.manifest.code.repository,

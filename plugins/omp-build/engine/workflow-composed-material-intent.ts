@@ -1,5 +1,6 @@
 import { canonicalValueDigest } from './canonical-value.ts'
 import type { CauseCreationProposal, ComposedParentConsent } from './cause-disposition-schema.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail, sameOwnSpecRef, sameRef } from './record-diagnostics.ts'
 import { specDigest } from './record-digests.ts'
@@ -102,6 +103,8 @@ function creationContextProblem(
   const assessment = assessmentHistory === null ? null : bindExternalRef(input.proposal.assessment, assessmentHistory)
   if (assessment === null || !assessment.ok || !isAssessResult(assessment.value))
     return 'Composed assessment result is unavailable'
+  if (!authenticateHistoricalActionInputs(assessment.value.payload.inputs, input.histories).ok)
+    return 'Composed assessment input context is not authenticated'
   const operands = assessment.value.payload.inputs.manifest.operands
   if (operands?.action !== 'assess-spec' || operands.origin.kind !== 'cause-created-child')
     return 'Composed assessment origin is not a created child'

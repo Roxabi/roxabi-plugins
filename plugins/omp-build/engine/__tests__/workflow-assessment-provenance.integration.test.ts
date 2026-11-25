@@ -132,6 +132,15 @@ test('historical assessments require observed bytes and intact expanded-context 
     })
 
     const stageRef = { ...lineage, record: { ...lineage.record, recordId: 'other-stage' } }
+    const selected = {
+      source: 'record' as const,
+      record: { scope: SCOPE, kind: mandated.kind, recordId: mandated.recordId },
+      selector: '/payload',
+      digest: canonicalValueDigest(mandated.payload),
+    }
+    const recordSuccessor = successor({ ...manifest, expandedContext: [lineage, added, selected] })
+    const recordObserved = await observe([...prior, recordSuccessor.start, recordSuccessor.result])
+    expect(workflowContextTerminal(recordObserved, 'assess-spec', mandateRef)).toBe('clear')
     const cases = [
       {
         name: 'changed negative digest',
@@ -140,6 +149,20 @@ test('historical assessments require observed bytes and intact expanded-context 
       { name: 'no new context', manifest: { ...manifest, expandedContext: [lineage] } },
       { name: 'changed authority', manifest: { ...manifest, code: { ...manifest.code, head: 'd'.repeat(40) } } },
       { name: 'changed stage sources', manifest, stageSources: [stageRef] },
+      ...(
+        [
+          ['absent record', { ...selected, record: { ...selected.record, recordId: 'absent' } }],
+          [
+            'wrong-scope record',
+            { ...selected, record: { ...selected.record, scope: { ...SCOPE, target: `${SCOPE.repository}#43` } } },
+          ],
+          ['wrong record selector', { ...selected, selector: '/payload/absent' }],
+          ['wrong record digest', { ...selected, digest: 'd'.repeat(64) }],
+        ] as const
+      ).map(([name, pin]) => ({
+        name,
+        manifest: { ...manifest, expandedContext: [lineage, added, pin] },
+      })),
       {
         name: 'missing policy blob',
         manifest: { ...manifest, expandedContext: [lineage, { ...added, commit: missingCommit }] },
@@ -153,7 +176,7 @@ test('historical assessments require observed bytes and intact expanded-context 
       },
     ]
     for (const item of cases) {
-      const changed = successor(item.manifest, item.stageSources)
+      const changed = successor(item.manifest, 'stageSources' in item ? item.stageSources : undefined)
       const issue = await observe([...prior, changed.start, changed.result])
       expect(workflowContextTerminal(issue, 'assess-spec', mandateRef), item.name).toBe('missing')
       expect(resolveAcceptedSpec(mandated, [issue]), item.name).toMatchObject({
@@ -161,7 +184,7 @@ test('historical assessments require observed bytes and intact expanded-context 
         evidence: [{ code: 'action-context-missing' }],
       })
     }
-    expect(requests).toEqual([expect.arrayContaining([`expression=${missingCommit}:policy.txt`])])
+    expect(requests).toContainEqual(expect.arrayContaining([`expression=${missingCommit}:policy.txt`]))
   } finally {
     rmSync(cwd, { recursive: true, force: true })
   }

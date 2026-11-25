@@ -1,15 +1,12 @@
-import { decodeHistory } from '../../adapters/github/history-codec.ts'
 import { actionInputDigest, canonicalValueDigest } from '../../engine/action-input.ts'
-import type { ActionInputs } from '../../engine/action-input-schema.ts'
+import type { ActionInputs, RecordInputRef } from '../../engine/action-input-schema.ts'
 import { buildRecord } from '../../engine/record-construction.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { Scope } from '../../engine/record-values.ts'
 import type { Result } from '../../engine/result.ts'
 import { nativeCorrectionRecords } from '../../testing/native-correction-records.ts'
-import { NATIVE_AUTHOR } from '../../testing/record-builders.ts'
-import { historicalRecordFrames, observedComment } from '../../testing/record-history.ts'
 import { roxabiWorkflowFixtures } from '../../testing/roxabi-presets.ts'
-import { proofData } from './uw-historical-correction-proof-fixture-data.ts'
+import { correctionProofHistory, proofData } from './uw-historical-correction-proof-fixture-data.ts'
 
 function must<T>(result: Result<T>): T {
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
@@ -22,23 +19,6 @@ function ref<K extends CanonicalRecord['kind']>(record: Scope & { kind: K; recor
     kind: record.kind,
     recordId: record.recordId,
   }
-}
-
-function history(scope: Scope, records: readonly CanonicalRecord[]) {
-  const comments = records
-    .flatMap((record) => historicalRecordFrames(record))
-    .map((body, index) => {
-      const nativeId = String(index + 100)
-      return observedComment({ locator: `${scope.target}:${nativeId}`, nativeId, body })
-    })
-  return decodeHistory({
-    scope,
-    expectedAuthor: NATIVE_AUTHOR,
-    stopAuthor: null,
-    complete: true,
-    comments,
-    diagnostics: [],
-  })
 }
 
 function capturedBasis() {
@@ -115,11 +95,15 @@ function capturedBasis() {
 }
 
 /** Extend the captured pre-apply history with immutable records, not a live correction writer. */
-export function historicalCorrectionProof() {
+export function historicalCorrectionProof(
+  expand?: (record: RecordInputRef) => ActionInputs['manifest']['expandedContext'],
+) {
   const { records, binding, fix, initial, decision, cause, originalInputs, spec, pull, priorHead } = capturedBasis()
   const workflow = roxabiWorkflowFixtures()
   const uw = binding.payload.mandate.scope
   const mandate = workflow.fixOnlyMandate(uw)
+  const contextScope = { repository: uw.repository, target: `${uw.repository}#98` }
+  const contextRecord = workflow.fixOnlyMandate(contextScope)
   const planRecords = workflow.planDraftRecords(mandate)
   const plan = planRecords.find((record) => record.payload.phase === 'result' && record.payload.action === 'plan')
   if (plan?.payload.phase !== 'result' || plan.payload.action !== 'plan') throw new Error('Expected plan result')
@@ -127,6 +111,15 @@ export function historicalCorrectionProof() {
   const proof = proofData(spec, { repository: pull.repository, commit: head })
   const manifest: ActionInputs['manifest'] = {
     ...originalInputs.manifest,
+    expandedContext: [
+      ...originalInputs.manifest.expandedContext,
+      ...(expand?.({
+        source: 'record',
+        record: ref(contextRecord),
+        selector: '/payload',
+        digest: canonicalValueDigest(contextRecord.payload),
+      }) ?? []),
+    ],
     deliveryData: [
       {
         source: 'record',
@@ -272,20 +265,22 @@ export function historicalCorrectionProof() {
       },
     }),
   )
-  const review = history(pull, [...records, inventory, source, correction, result])
-  const reviewWithoutSource = history(pull, [...records, inventory, correction, result])
-  const issue = history(uw, [mandate, ...planRecords, disposition])
+  const review = correctionProofHistory(pull, [...records, inventory, source, correction, result])
+  const reviewWithoutSource = correctionProofHistory(pull, [...records, inventory, correction, result])
+  const issue = correctionProofHistory(uw, [mandate, ...planRecords, disposition])
   return {
     mandate,
     spec,
     head,
     priorHead,
+    evidence: proof.receipt.evidence,
     result,
     source,
     correction,
     review,
     reviewWithoutSource,
     issue,
+    contextHistory: correctionProofHistory(contextScope, [contextRecord]),
     planActionId: plan.payload.actionId,
     request: {
       actionId: 'historical-proof-reader',

@@ -110,7 +110,7 @@ function contextAssessment(
   mandateRef: ExternalRecordRef,
   excluded: ReadonlySet<string>,
 ): AssessmentFailure | { ok: true } {
-  const terminal = workflowContextTerminal(home, 'assess-spec', mandateRef, undefined, excluded)
+  const terminal = workflowContextTerminal(home, 'assess-spec', mandateRef, excluded)
   if (terminal === 'clear') return { ok: true }
   if (terminal === 'ambiguous') return specChainFailure('ambiguous', 'Spec assessment context has competing successors')
   return specChainFailure(

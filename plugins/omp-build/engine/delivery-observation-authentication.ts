@@ -1,7 +1,8 @@
 import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest } from './action-input.ts'
-import type { PinnedFileRef, RecordInputRef } from './action-input-schema.ts'
+import type { PinnedFileRef } from './action-input-schema.ts'
 import type { CriterionEvidence, ObservationRef } from './criterion-evidence-schema.ts'
+import { authenticateHistoricalActionInputs, recordRefDiagnostics } from './historical-action-inputs.ts'
 import { hasObservedGitPin } from './historical-git-pins.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerSourceDiagnostics } from './observation-input-authentication.ts'
@@ -73,17 +74,6 @@ export function citedOperationIntegrity(history: DecodedHistory, recordId: strin
   }
   const integrity = recordIntegrity(operation.parts, operation.record)
   return integrity === null ? null : diagnostic(integrity.reason, integrity.detail)
-}
-
-function pointer(value: unknown, selector: string): unknown {
-  if (selector === '') return value
-  let current = value
-  for (const raw of selector.split('/').slice(1)) {
-    if (current === null || typeof current !== 'object') return undefined
-    const key = raw.replaceAll('~1', '/').replaceAll('~0', '~')
-    current = Array.isArray(current) ? current[Number(key)] : (current as Record<string, unknown>)[key]
-  }
-  return current
 }
 
 export function observationRefDiagnostics(
@@ -226,6 +216,8 @@ export function observationAuthenticationDiagnostics(
   pins: readonly PinnedFileRef[],
   receipt: Receipt,
 ): Diagnostic[] {
+  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
+  if (!authenticated.ok) return authenticated.diagnostics
   const diagnostics = versionClaimReferences(evidence).flatMap((ref) =>
     observationRefDiagnostics(evidence.id, ref, histories, pins),
   )
@@ -259,23 +251,4 @@ function recordSourceDiagnostics(
   if (!bound.ok) return [...bound.diagnostics]
   const integrity = citedOperationIntegrity(history, ref.recordId)
   return integrity === null ? [] : [integrity]
-}
-
-export function recordRefDiagnostics(
-  evidenceId: string,
-  ref: RecordInputRef,
-  histories: readonly DecodedHistory[],
-): Diagnostic[] {
-  const history = historyFor(ref.record.scope, histories)
-  if (history === null)
-    return [diagnostic('missing-history', `Evidence ${evidenceId} has no history for ${ref.record.recordId}`)]
-  const bound = bindExternalRef(ref.record, history)
-  if (!bound.ok) return [...bound.diagnostics]
-  const integrity = citedOperationIntegrity(history, ref.record.recordId)
-  if (integrity !== null) return [integrity]
-  const selected = pointer(bound.value, ref.selector)
-  if (selected === undefined || canonicalValueDigest(selected) !== ref.digest) {
-    return [diagnostic('mismatch', `Evidence ${evidenceId} observation digest does not match ${ref.record.recordId}`)]
-  }
-  return []
 }

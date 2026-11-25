@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
 import type { PinnedFileRef } from './action-input-refs.ts'
-import type { ActionInputs } from './action-input-schema.ts'
 import type { DecodedHistory, History } from './history-schema.ts'
 
 // The installed bundle and source adapters can share evidence without making it part of the wire history.
@@ -38,8 +37,4 @@ export function inheritObservedGitPins(original: ObservedHistory, parsed: Histor
 export function hasObservedGitPin(histories: readonly DecodedHistory[], pin: PinnedFileRef) {
   const key = gitPinKey(pin)
   return histories.some(({ source }: { source: ObservedHistory }) => source[observedPins]?.has(key) === true)
-}
-
-export function expandedGitPinsObserved(histories: readonly DecodedHistory[], inputs: ActionInputs) {
-  return inputs.manifest.expandedContext.every((ref) => ref.source !== 'git-file' || hasObservedGitPin(histories, ref))
 }

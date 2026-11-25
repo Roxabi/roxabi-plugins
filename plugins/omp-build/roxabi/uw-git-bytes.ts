@@ -63,7 +63,9 @@ export async function readGitFileBytes(request: GitByteRequest): Promise<Result<
     return actionFailure('pinned-file-unreadable', 'Pinned file coordinates are incomplete')
   }
   if (request.cwd !== undefined && (await checkoutRepository(request.cwd)) === request.repository) {
-    const local = await git(request.cwd, ['cat-file', 'blob', `${request.commit}:${request.path}`])
+    // Ignore replacements throughout commit:path traversal, not just for the resulting blob.
+    const expression = `${request.commit}:${request.path}`
+    const local = await git(request.cwd, ['--no-replace-objects', 'cat-file', 'blob', expression])
     if (local.ok) return { ok: true, value: local.stdout }
   }
   return readGitHubBlob(request)

@@ -1,5 +1,6 @@
 import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -135,6 +136,15 @@ function unboundPinnedMandate(inputs: ActionInputs, histories: readonly DecodedH
 
 /** Authenticate the execution mandate pinned by historical action inputs. */
 export function resolveManifestMandate(
+  inputs: ActionInputs,
+  histories: readonly DecodedHistory[],
+): Result<MandateRecord> {
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories)
+  if (!authenticated.ok) return authenticated
+  return resolveAuthenticatedManifestMandate(authenticated.value, histories)
+}
+
+function resolveAuthenticatedManifestMandate(
   inputs: ActionInputs,
   histories: readonly DecodedHistory[],
 ): Result<MandateRecord> {

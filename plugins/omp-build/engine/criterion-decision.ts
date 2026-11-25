@@ -7,6 +7,7 @@ import type { CriterionVerdict } from './criterion-verdict-schema.ts'
 import { criterionVerdictSchema } from './criterion-verdict-schema.ts'
 import { observationRefDiagnostics } from './delivery-eligibility.ts'
 import { validateExclusionClaims } from './exclusion-claims.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameOwnSpecRef } from './record-diagnostics.ts'
 import type { CanonicalRecord } from './record-schema.ts'
@@ -132,11 +133,12 @@ export function authenticatedCriterionFacts(
 ): CriterionDecisionFacts {
   const records = recordsOf(history)
   const diagnostics: Diagnostic[] = []
-  const inputs = reviewInputsFromInventory(decision, history)
+  const histories = [deliveryHistory, ...externalHistories]
+  const inputs = reviewInputsFromInventory(decision, history, histories)
   const selected =
     inputs === null
       ? { declarations: [], evidence: [] }
-      : selectedDeclarations([deliveryHistory, ...externalHistories], inputs, diagnostics, catalogues)
+      : selectedDeclarations(histories, inputs, diagnostics, catalogues)
   const bound = new Set(decision.sourceContributionIds)
   if (originalContributionId !== null) bound.add(originalContributionId)
   const verdicts: CriterionVerdict[] = []
@@ -206,15 +208,21 @@ export function criterionAssessmentForDecision(
   code: { repository: string; commit: string } | null,
   histories: readonly DecodedHistory[] = [],
 ): { forceRequestChanges: boolean; diagnostics: Diagnostic[] } {
-  const diagnostics = [
-    ...facts.diagnostics,
-    ...codeLinkReferenceDiagnostics(facts.verdicts, histories, manifestPins(inputs)),
-  ]
-  if (decision.purpose !== 'review') return { forceRequestChanges: false, diagnostics }
+  const diagnostics = [...facts.diagnostics]
+  if (decision.purpose !== 'review') {
+    diagnostics.push(...codeLinkReferenceDiagnostics(facts.verdicts, histories, manifestPins(inputs)))
+    return { forceRequestChanges: false, diagnostics }
+  }
   if (inputs === null) {
     diagnostics.push(diagnostic('malformed', 'Review decision lacks an authenticated action-input binding'))
     return { forceRequestChanges: true, diagnostics }
   }
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories)
+  if (!authenticated.ok) {
+    diagnostics.push(...authenticated.diagnostics)
+    return { forceRequestChanges: true, diagnostics }
+  }
+  diagnostics.push(...codeLinkReferenceDiagnostics(facts.verdicts, histories, manifestPins(authenticated.value)))
   if (inputs.manifest.spec.kind === 'absent') return assessStandalone(decision, inputs, code, diagnostics)
   if (inputs.manifest.spec.kind !== 'accepted') {
     diagnostics.push(diagnostic('spec-not-accepted', 'A proposed Spec cannot approve delivery'))

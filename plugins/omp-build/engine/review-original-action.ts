@@ -1,5 +1,6 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs } from './action-input-schema.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { inspectFinding } from './producer-schema.ts'
 import { diagnostic } from './record-diagnostics.ts'
@@ -11,6 +12,7 @@ import { accounted } from './review-context-authentication.ts'
 type Contribution = Extract<CanonicalRecord, { kind: 'contribution' }>
 type Slot = Extract<CanonicalRecord, { kind: 'review-attempt' }>['payload']['slots'][number]
 
+/** Structural slot equality; the caller chooses observation or positive authority. */
 export function matchesContributionSlot(source: Contribution, slot: Slot, inventoryId: string): boolean {
   return (
     source.inputs.includes(inventoryId) &&
@@ -22,8 +24,7 @@ export function matchesContributionSlot(source: Contribution, slot: Slot, invent
     source.payload.host.chunk === slot.chunk &&
     slot.action !== undefined &&
     (source.payload.host.action === undefined ||
-      canonicalValueDigest(source.payload.host.action) === canonicalValueDigest(slot.action)) &&
-    validateActionInputs(slot.action.inputs).ok
+      canonicalValueDigest(source.payload.host.action) === canonicalValueDigest(slot.action))
   )
 }
 
@@ -33,7 +34,11 @@ const unavailable = (): Result<never> => ({
 })
 
 /** Authenticate immutable producer capture; current Spec and execution authority belong to the caller. */
-export function originalContributionAction(source: Contribution, history: DecodedHistory): Result<ActionInputs> {
+export function originalContributionAction(
+  source: Contribution,
+  history: DecodedHistory,
+  histories: readonly DecodedHistory[] = [history],
+): Result<ActionInputs> {
   if (
     !accounted(history, source) ||
     source.payload.inventoryId === null ||
@@ -63,16 +68,17 @@ export function originalContributionAction(source: Contribution, history: Decode
       canonicalValueDigest(slot.action.inputs) !== canonicalValueDigest(inventory.payload.inputSnapshot))
   )
     return unavailable()
-  return { ok: true, value: slot.action.inputs }
+  return authenticateHistoricalActionInputs(slot.action.inputs, histories)
 }
 
 export function inspectContributionFindings(
   source: Contribution,
   history: DecodedHistory,
   catalogues: ReviewClassCatalogues,
+  histories: readonly DecodedHistory[] = [history],
 ): ReadonlyMap<string, FindingInspection> {
   const inspections = new Map<string, FindingInspection>()
-  const action = originalContributionAction(source, history)
+  const action = originalContributionAction(source, history, histories)
   const catalogue = action.ok ? catalogueForAction(action.value, catalogues) : action
   for (const original of source.payload.findings ?? []) {
     const inspection = inspectFinding(original.data, catalogue.ok ? catalogue.value : [])

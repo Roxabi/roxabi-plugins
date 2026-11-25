@@ -1,5 +1,5 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
-import { expandedGitPinsObserved } from './historical-git-pins.ts'
+import { canonicalValueDigest } from './action-input.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { equalScope, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -35,6 +35,7 @@ function authenticateStart(
   confirmed: AssessResultRecord,
   home: DecodedHistory,
   mandateRef: ExternalRecordRef,
+  histories: readonly DecodedHistory[],
 ): SpecChainFailure | { ok: true } {
   const startRef = confirmed.payload.start
   if (!equalScope(startRef.scope, confirmed) || !equalScope(startRef.scope, mandateRef.scope)) return mismatchedStart()
@@ -48,9 +49,8 @@ function authenticateStart(
   if (!sameAssessInputs(startPayload.exactInputs, confirmed.payload.exactInputs)) return mismatchedStart()
   if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
     return mismatchedStart()
-  if (!validateActionInputs(confirmed.payload.inputs).ok) return mismatchedStart()
-  if (!expandedGitPinsObserved([home], confirmed.payload.inputs))
-    return specChainFailure('incomplete', 'Spec assessment cites unconfirmed expanded Git context', 'unconfirmed')
+  const authenticated = authenticateHistoricalActionInputs(confirmed.payload.inputs, histories)
+  if (!authenticated.ok) return boundFailure(authenticated.diagnostics)
   const operands = confirmed.payload.inputs.manifest.operands
   if (operands?.action !== 'assess-spec' || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
     return mismatchedStart()
@@ -77,7 +77,7 @@ function authenticatedRecord(
   const confirmed = bound.value
   if (confirmed.payload.native.completion !== 'completed' || confirmed.payload.native.strict !== 'valid')
     return specChainFailure('incomplete', 'Spec assessment is not a confirmed native result', 'unconfirmed')
-  const start = authenticateStart(confirmed, home, mandateRef)
+  const start = authenticateStart(confirmed, home, mandateRef, histories)
   if (!start.ok) return start
   return { ok: true, record: confirmed }
 }

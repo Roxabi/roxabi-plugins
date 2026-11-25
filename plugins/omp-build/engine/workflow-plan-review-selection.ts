@@ -2,6 +2,7 @@ import { missingContextOf } from './action-context.ts'
 import { canonicalValueDigest } from './canonical-value.ts'
 import { assessPlanCoverage } from './criterion-admission.ts'
 import { nativeResultValid, uniqueAccounted } from './delivery-eligibility.ts'
+import { authenticatedReceiptActionInputs, authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { producerOutputValid } from './producer-schema.ts'
 import { diagnostic, sameRef } from './record-diagnostics.ts'
@@ -35,11 +36,10 @@ function reviewContextProblem(
   mandate: MandateRecord,
   empty: EmptyMacro,
   excluded: ReadonlySet<string>,
-  contextLeaf?: ReceiptRecord,
 ): PlanMacro | null {
   const mandateRef: ExternalRecordRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: 'mandate' }
   for (const action of ['plan', 'plan-review'] as const) {
-    const terminal = workflowContextTerminal(history, action, mandateRef, contextLeaf, excluded)
+    const terminal = workflowContextTerminal(history, action, mandateRef, excluded)
     if (terminal === 'missing')
       return empty('blocked', [diagnostic('action-context-missing', `${action} requires expanded context`)])
     if (terminal === 'uncertain')
@@ -56,7 +56,6 @@ export function prepareReview(
   own: AcceptedOwnSpec,
   accepted: SpecEffective,
   empty: EmptyMacro,
-  contextLeaf?: ReceiptRecord,
 ): ReviewContext | { macro: PlanMacro } {
   const history = evidence.issue
   const gate = interruptionGate(
@@ -72,7 +71,7 @@ export function prepareReview(
   if (gate.kind === 'stop')
     return { macro: empty(gate.completion.status === 'uncertain' ? 'uncertain' : 'blocked', gate.completion.evidence) }
   const excluded = gate.excluded
-  const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf)
+  const problem = reviewContextProblem(history, mandate, empty, excluded)
   if (problem !== null) return { macro: problem }
   if (unsettledStart(history, 'plan', mandate, planResults(history, excluded), excluded))
     return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan start has no result')]) }
@@ -80,7 +79,7 @@ export function prepareReview(
     return { macro: empty('uncertain', [diagnostic('action-uncertain', 'plan review start has no result')]) }
   const results = planResults(history, excluded).filter(
     (record) =>
-      planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) &&
+      planMatchesMandate(record, mandate, own, accepted, [history, ...evidence.causal.histories]) &&
       !(producerOutputValid('plan', record.payload.structured) && missingContextOf(record.payload.structured) !== null),
   )
   const drafts = uniqueAccounted(
@@ -96,7 +95,14 @@ export function prepareReview(
   if (!parsedPlan.success) return { macro: empty('blocked', [diagnostic('malformed', 'plan result is not a plan')]) }
   const coverage = assessPlanCoverage({ spec: accepted, plan: parsedPlan.data })
   if (!coverage.ok) return { macro: empty('blocked', coverage.diagnostics) }
-  const review = matchingReview(history, mandate, latest, planDigest(parsedPlan.data), excluded)
+  const review = matchingReview(
+    history,
+    mandate,
+    latest,
+    planDigest(parsedPlan.data),
+    excluded,
+    evidence.causal.histories,
+  )
   if (!review.ok) return { macro: empty('blocked', review.diagnostics) }
   if (review.value === null) {
     return {
@@ -175,6 +181,7 @@ function planMatchesMandate(
   return (
     sameRef(record.payload.mandate, mandateRef) &&
     record.payload.exactInputs.specDigest === effective.own.version &&
+    authenticateHistoricalActionInputs(record.payload.inputs, histories).ok &&
     manifest.spec.kind === 'accepted' &&
     canonicalValueDigest(manifest.spec.effective) === canonicalValueDigest(effective) &&
     capturedAssessmentSourcesMatch(
@@ -191,6 +198,7 @@ function matchingReview(
   latest: PlanResultReceipt,
   digest: string,
   excluded: ReadonlySet<string>,
+  histories: readonly DecodedHistory[],
 ) {
   return uniqueAccounted(
     planReviews(history, excluded).filter(
@@ -200,6 +208,7 @@ function matchingReview(
             producerOutputValid('plan-review', contribution.structured) &&
             missingContextOf(contribution.structured) !== null,
         ) &&
+        authenticatedReceiptActionInputs(record.payload, [history, ...histories]) &&
         record.payload.exactInputs.planDigest === digest &&
         record.payload.exactInputs.mandateId === mandate.recordId &&
         record.payload.exactInputs.draftActionId === latest.payload.actionId,

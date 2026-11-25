@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest'
+import { acceptedActionInputs } from '../../testing/action-input-fixtures.ts'
+import { actionInputDigest } from '../action-input.ts'
 import { assessCriterionReview } from '../criterion-admission.ts'
 import { criterionEvidenceSchema, producerCriterionDeclarationSchema } from '../criterion-evidence-schema.ts'
 import { observationAuthenticationDiagnostics } from '../delivery-eligibility.ts'
@@ -13,9 +15,16 @@ import {
   satisfied,
   solo,
 } from './criterion-admission-fixture.ts'
+import { shippedFeatureMandate } from './workflow-spec-assessment-support.ts'
 import { history } from './workflow-test-support.ts'
 
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
+
+function implementationInputs(repositoryReferences: Receipt['payload']['inputs']['manifest']['repositoryReferences']) {
+  const base = acceptedActionInputs(shippedFeatureMandate(), 'implement')
+  const manifest = { ...base.manifest, repositoryReferences }
+  return { ...base, manifest, fingerprint: actionInputDigest(manifest) }
+}
 
 function fixture() {
   const evidence = criterionEvidenceSchema.parse({
@@ -52,16 +61,7 @@ function fixture() {
       actionId: 'implement-region',
       admission: { admitted: true },
       native,
-      inputs: {
-        manifest: {
-          repositoryReferences: evidence.references,
-          plugin: { files: [] },
-          expandedContext: [],
-          acceptedSources: [],
-          deliveryData: [],
-        },
-        stageSources: [],
-      },
+      inputs: implementationInputs(evidence.references),
     },
   } as unknown as Receipt
   const histories = [observeFixtureContentReading(history([]))]
@@ -150,20 +150,8 @@ describe('native observation authentication', () => {
     expect(authenticate(receipt, [])).not.toEqual([])
     const noProducerPins = {
       ...receipt,
-      payload: {
-        ...receipt.payload,
-        inputs: {
-          manifest: {
-            repositoryReferences: [],
-            plugin: { files: [] },
-            expandedContext: [],
-            acceptedSources: [],
-            deliveryData: [],
-          },
-          stageSources: [],
-        },
-      },
-    } as unknown as Receipt
+      payload: { ...receipt.payload, inputs: implementationInputs([]) },
+    } as Receipt
     expect(authenticate(noProducerPins)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

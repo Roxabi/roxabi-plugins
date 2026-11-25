@@ -138,11 +138,11 @@ function validateDecisionAtObservation(
     ])
   if (record.payload.judgment.purpose !== 'review')
     return fail([diagnostic('cause-context-unbound', 'Effective finding veto requires a review decision')])
-  const inputs = reviewInputsFromInventory(record.payload.judgment, history)
+  const histories = [deliveryHistory, ...externalHistories]
+  const inputs = reviewInputsFromInventory(record.payload.judgment, history, histories)
   if (inputs === null) return fail([diagnostic('cause-context-unbound', 'Review has no authenticated input snapshot')])
   const selected = inputs.manifest.deliveryData.filter((item) => item.role === 'cause-state')
   let rejected: readonly string[] = []
-  const histories = [deliveryHistory, ...externalHistories]
   if (reviewNeedsIntegrationAuthentication(inputs)) {
     const integration = authenticateReviewIntegrationPin(inputs, histories)
     if (!integration.ok) return integration

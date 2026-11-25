@@ -18,6 +18,7 @@ import {
   observationAuthenticationDiagnostics,
   planReceiptEligible,
 } from './delivery-eligibility.ts'
+import { authenticateHistoricalActionInputs, selectedRecordValue } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -31,21 +32,6 @@ import { resolveManifestMandate } from './workflow-pr-binding.ts'
 type Receipt = Extract<CanonicalRecord, { kind: 'action-receipt' }>
 type DeliveryRef = ActionInputs['manifest']['deliveryData'][number]
 type SelectedEvidence = { ref: EvidenceRef; value: CriterionEvidence }[]
-
-function pointer(value: unknown, selector: string): unknown {
-  if (selector === '') return value
-  let current = value
-  for (const raw of selector.slice(1).split('/')) {
-    const key = raw.replaceAll('~1', '/').replaceAll('~0', '~')
-    if (Array.isArray(current)) {
-      current = current[Number(key)]
-      continue
-    }
-    if (current === null || typeof current !== 'object' || !Object.hasOwn(current, key)) return undefined
-    current = Object.getOwnPropertyDescriptor(current, key)?.value
-  }
-  return current
-}
 
 function receiptEligible(record: Receipt): boolean {
   if (record.payload.action === 'plan') return planReceiptEligible(record) && record.payload.phase === 'result'
@@ -88,6 +74,7 @@ function admittedImplementation(
   head: string,
   planActionId: string,
   mandate: ExternalRecordRef,
+  histories: readonly DecodedHistory[],
 ): boolean {
   const payload = receipt.payload
   if (
@@ -105,7 +92,7 @@ function admittedImplementation(
   if (
     payload.action === 'integrate'
       ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt)
-      : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt)
+      : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt, histories)
   )
     return false
   if (payload.admission?.remoteTip !== head) return false
@@ -161,13 +148,18 @@ function appendImplementation(
   declarations: CriterionDeclaration[],
   evidence: SelectedEvidence,
 ): void {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
+  if (!admittedImplementation(receipt, history, head, planActionId, mandate, histories)) {
     diagnostics.push(
       diagnostic('unconfirmed', `Delivery record ${ref.record.recordId} is not the admitted current head`),
     )
     return
   }
-  const selected = pointer(receipt, ref.selector)
+  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories)
+  if (!authenticated.ok) {
+    diagnostics.push(...authenticated.diagnostics)
+    return
+  }
+  const selected = selectedRecordValue(receipt, ref.selector)
   if (selected === undefined || canonicalValueDigest(selected) !== ref.digest) {
     diagnostics.push(
       diagnostic('mismatch', `Delivery selector ${ref.selector} does not match its authenticated digest`),

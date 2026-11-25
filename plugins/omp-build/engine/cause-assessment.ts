@@ -76,9 +76,9 @@ function assess(
   if (!bound.ok) return bound
   if (JSON.stringify(bound.value) !== JSON.stringify(decision))
     return { ok: false, diagnostics: [diagnostic('unbound', 'Decision differs from its authenticated record')] }
-  const bindings = decisionBindings(decision, history, input.catalogues, frame)
+  const bindings = decisionBindings(decision, history, input.catalogues, histories, frame)
   diagnostics.push(...bindings.diagnostics)
-  const resolvedInputs = resolveCauseActionInputs({ decision, history, context })
+  const resolvedInputs = resolveCauseActionInputs({ decision, history, context, histories })
   if (!resolvedInputs.ok) return resolvedInputs
   const selectedInputs = resolvedInputs.value
   const records = bindings.records
@@ -118,12 +118,13 @@ function decisionBindings(
   decision: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
   catalogues: ReviewClassCatalogues,
+  histories: readonly DecodedHistory[],
   frame?: CauseValidationFrame,
 ) {
   const bindingKey = canonicalValueDigest([{ repository: decision.repository, target: decision.target }, decision])
   let bindings = frame?.bindings.get(bindingKey)
   if (bindings === undefined) {
-    bindings = validateDecisionBindings(decision, history, frame?.catalogues ?? catalogues)
+    bindings = validateDecisionBindings(decision, history, frame?.catalogues ?? catalogues, histories)
     frame?.bindings.set(bindingKey, bindings)
   }
   return bindings

@@ -7153,226 +7153,11 @@ var pinnedFileRefSchema = strictObject({
   digest: sha256Schema
 });
 
-// plugins/omp-build/engine/historical-git-pins.ts
-import { createHash } from "node:crypto";
-var observedPins = Symbol.for("omp-build.historical-git-pins");
-function gitPinCoordinates(pin) {
-  return `${pin.repository}\x00${pin.commit}\x00${pin.path}`;
-}
-function gitPinKey(pin) {
-  return `${gitPinCoordinates(pin)}\x00${pin.digest}`;
-}
-function recordGitPinBytes(history, pins, bytes) {
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  const source = history.source;
-  for (const pin of pins) {
-    if (digest !== pin.digest)
-      continue;
-    let verified = source[observedPins];
-    if (verified === undefined) {
-      verified = new Set;
-      Object.defineProperty(source, observedPins, { enumerable: true, value: verified });
-    }
-    verified.add(gitPinKey(pin));
-  }
-}
-function hasObservedGitPin(histories, pin) {
-  const key = gitPinKey(pin);
-  return histories.some(({ source }) => source[observedPins]?.has(key) === true);
-}
-function expandedGitPinsObserved(histories, inputs) {
-  return inputs.manifest.expandedContext.every((ref) => ref.source !== "git-file" || hasObservedGitPin(histories, ref));
-}
-
-// plugins/omp-build/roxabi/uw-git-bytes.ts
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-// plugins/omp-build/roxabi/workflow-config-digest.ts
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-function shippedProductVersion() {
-  const start = dirname(fileURLToPath(import.meta.url));
-  for (const path of [join(start, "package.json"), join(start, "..", "package.json")]) {
-    try {
-      const parsed = JSON.parse(readFileSync(path, "utf8"));
-      if (parsed.name === "omp-build" && typeof parsed.version === "string" && parsed.version.length > 0)
-        return parsed.version;
-    } catch {}
-  }
-  throw new Error("omp-build package.json version is missing");
-}
-
-// plugins/omp-build/roxabi/uw-action-result.ts
-function actionFailure(code, message, detail) {
-  const diagnostic = detail === undefined ? { code, message } : { code, message, detail };
-  return { ok: false, diagnostics: [diagnostic] };
-}
-function isGitSha(value) {
-  return /^[0-9a-f]{40}$/.test(value);
-}
-
-// plugins/omp-build/roxabi/uw-github-blobs.ts
-var import_preparation_graphql = __toESM(require_preparation_graphql(), 1);
-import { createHash as createHash2 } from "node:crypto";
-function gitBlobSha(bytes) {
-  return createHash2("sha1").update(`blob ${bytes.byteLength}\x00`).update(bytes).digest("hex");
-}
-function decodeBase64(value, size) {
-  const compact = value.replace(/[ \t\r\n]/g, "");
-  if (compact.length === 0)
-    return size === 0 ? new Uint8Array : null;
-  if (compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact))
-    return null;
-  const bytes = Buffer.from(compact, "base64");
-  if (bytes.toString("base64") !== compact || bytes.byteLength !== size)
-    return null;
-  return bytes;
-}
-function record2(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function blobOid(parsed) {
-  if (!record2(parsed) || !("data" in parsed) || "errors" in parsed && (!Array.isArray(parsed.errors) || parsed.errors.length > 0))
-    return "unreadable";
-  const data = parsed.data;
-  if (!record2(data) || !("repository" in data))
-    return "unreadable";
-  const repository = data.repository;
-  if (!record2(repository) || !("object" in repository))
-    return "unreadable";
-  if (repository.object === null)
-    return "absent";
-  const object = repository.object;
-  if (!record2(object) || !("oid" in object) || typeof object.oid !== "string" || !isGitSha(object.oid))
-    return "absent";
-  return object.oid;
-}
-function blobBody(parsed) {
-  if (!record2(parsed) || parsed.encoding !== "base64" || typeof parsed.content !== "string" || typeof parsed.sha !== "string")
-    return null;
-  if (typeof parsed.size !== "number" || !Number.isSafeInteger(parsed.size) || parsed.size < 0)
-    return null;
-  return { content: parsed.content, size: parsed.size, sha: parsed.sha };
-}
-function ghFailure(error, missing) {
-  const detail = error instanceof Error ? error.message : "no local fallback";
-  return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}. ${detail}`);
-}
-async function ghText(gh, cwd, args, missing) {
-  try {
-    return { ok: true, value: await gh(cwd ?? "", args) };
-  } catch (error) {
-    return ghFailure(error, missing);
-  }
-}
-function jsonBody(raw, missing, label) {
-  try {
-    return { ok: true, value: JSON.parse(raw) };
-  } catch {
-    return actionFailure("pinned-file-unreadable", `GitHub ${label} is not JSON for ${missing}`);
-  }
-}
-async function readGitHubBlob(request) {
-  const missing = `${request.repository}@${request.commit}:${request.path}`;
-  const slash = request.repository.indexOf("/");
-  const located = await ghText(request.gh, request.cwd, [
-    "api",
-    "graphql",
-    "-f",
-    `query=${import_preparation_graphql.BLOB_QUERY}`,
-    "-f",
-    `owner=${request.repository.slice(0, slash)}`,
-    "-f",
-    `name=${request.repository.slice(slash + 1)}`,
-    "-f",
-    `expression=${request.commit}:${request.path}`
-  ], missing);
-  if (!located.ok)
-    return located;
-  const lookup = jsonBody(located.value, missing, "blob lookup");
-  if (!lookup.ok)
-    return lookup;
-  const oid = blobOid(lookup.value);
-  if (oid === "unreadable")
-    return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}`);
-  if (oid === "absent")
-    return actionFailure("pinned-file-incomplete", `Pinned path is not a Git blob: ${missing}`);
-  return fetchGitHubBlob(request, oid);
-}
-async function fetchGitHubBlob(request, oid) {
-  const missing = `${request.repository}@${request.commit}:${request.path}`;
-  const raw = await ghText(request.gh, request.cwd, [
-    "api",
-    "--method",
-    "GET",
-    `repos/${request.repository}/git/blobs/${oid}`,
-    "-H",
-    "Accept: application/vnd.github+json"
-  ], missing);
-  if (!raw.ok)
-    return raw;
-  const parsed = jsonBody(raw.value, missing, "blob response");
-  if (!parsed.ok)
-    return parsed;
-  const body = blobBody(parsed.value);
-  if (body === null || body.sha !== oid)
-    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
-  const bytes = decodeBase64(body.content, body.size);
-  if (bytes === null || gitBlobSha(bytes) !== oid)
-    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
-  return { ok: true, value: bytes };
-}
-
-// plugins/omp-build/roxabi/uw-git-bytes.ts
-var execFileAsync = promisify(execFile);
-var REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-function githubRepository(url) {
-  const match = url.trim().match(/^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/);
-  return match?.[1] ?? null;
-}
-async function git(cwd, args) {
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
-      encoding: "buffer",
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: 30000
-    });
-    return { ok: true, stdout };
-  } catch {
-    return { ok: false };
-  }
-}
-async function checkoutRepository(cwd) {
-  const shown = await git(cwd, ["config", "--get", "remote.origin.url"]);
-  if (!shown.ok)
-    return null;
-  return githubRepository(shown.stdout.toString("utf8"));
-}
-function pathSegments(path) {
-  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path))
-    return false;
-  const segments = path.split("/");
-  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
-}
-async function readGitFileBytes(request) {
-  if (!REPOSITORY.test(request.repository) || !isGitSha(request.commit) || !repoRelativePathPattern.test(request.path) || !pathSegments(request.path)) {
-    return actionFailure("pinned-file-unreadable", "Pinned file coordinates are incomplete");
-  }
-  if (request.cwd !== undefined && await checkoutRepository(request.cwd) === request.repository) {
-    const local = await git(request.cwd, ["cat-file", "blob", `${request.commit}:${request.path}`]);
-    if (local.ok)
-      return { ok: true, value: local.stdout };
-  }
-  return readGitHubBlob(request);
-}
-
 // plugins/omp-build/engine/action-input.ts
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 
 // plugins/omp-build/engine/canonical-value.ts
-import { createHash as createHash3 } from "node:crypto";
+import { createHash } from "node:crypto";
 function orderedCanonicalValue(value) {
   if (Array.isArray(value))
     return value.map(orderedCanonicalValue);
@@ -7386,7 +7171,7 @@ function orderedCanonicalValue(value) {
   return value;
 }
 function canonicalValueDigest(value) {
-  return createHash3("sha256").update(JSON.stringify(orderedCanonicalValue(value)), "utf8").digest("hex");
+  return createHash("sha256").update(JSON.stringify(orderedCanonicalValue(value)), "utf8").digest("hex");
 }
 // plugins/omp-build/engine/code-range-schema.ts
 var codeRangeSchema = strictObject({
@@ -7737,9 +7522,9 @@ var creationContextSchema = discriminatedUnion("kind", [
 ]);
 
 // plugins/omp-build/engine/record-digests.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 function specDigest(body) {
-  return createHash4("sha256").update(body, "utf8").digest("hex");
+  return createHash2("sha256").update(body, "utf8").digest("hex");
 }
 var failedCheckFailureSchema = strictObject({
   name: string2().min(1),
@@ -8832,7 +8617,7 @@ function canonicalActionInput(manifest) {
   }));
 }
 function actionInputDigest(manifest) {
-  return createHash5("sha256").update(canonicalActionInput(manifest), "utf8").digest("hex");
+  return createHash3("sha256").update(canonicalActionInput(manifest), "utf8").digest("hex");
 }
 function duplicate(refs, label, diagnostics) {
   const seen = new Map;
@@ -8918,73 +8703,56 @@ function validateActionInputs(input) {
   return validateParsedActionInputs(parsed.data);
 }
 
-// plugins/omp-build/engine/fix-recovery-part-pins.ts
-import { createHash as createHash6 } from "node:crypto";
-var PART_HEADER = /^<!-- omp-build-record v=1 kind=[a-z][a-z0-9-]* id=[^\s<>]+ operationId=[^\s<>]+ part=([1-9][0-9]*)\/([1-9][0-9]*) data=[A-Za-z0-9_-]+ -->\n/;
-function commentAsPartPin(comment) {
-  const match = PART_HEADER.exec(comment.body);
-  if (match === null || !comment.author || !comment.nativeId || !comment.locator)
-    return null;
-  const part = Number(match[1]);
-  const total = Number(match[2]);
-  if (!Number.isSafeInteger(part) || !Number.isSafeInteger(total) || part > total)
-    return null;
-  return {
-    locator: comment.locator,
-    nativeId: comment.nativeId,
-    author: comment.author,
-    createdAt: comment.createdAt,
-    updatedAt: comment.updatedAt,
-    bodyDigest: createHash6("sha256").update(comment.body, "utf8").digest("hex"),
-    part,
-    total
-  };
+// plugins/omp-build/engine/historical-git-pins.ts
+import { createHash as createHash4 } from "node:crypto";
+var observedPins = Symbol.for("omp-build.historical-git-pins");
+function gitPinCoordinates(pin) {
+  return `${pin.repository}\x00${pin.commit}\x00${pin.path}`;
 }
-function partPinsEqual(left, right) {
-  return left.locator === right.locator && left.nativeId === right.nativeId && left.author === right.author && left.createdAt === right.createdAt && left.updatedAt === right.updatedAt && left.bodyDigest === right.bodyDigest && left.part === right.part && left.total === right.total;
+function gitPinKey(pin) {
+  return `${gitPinCoordinates(pin)}\x00${pin.digest}`;
 }
-function observedPartsMatch(expected, operation, exact = true) {
-  const observed = operation.parts.map(commentAsPartPin);
-  if (exact && observed.length !== expected.length || observed.some((entry) => entry === null))
-    return false;
-  const remaining = [...observed];
-  for (const pin of expected) {
-    const index = remaining.findIndex((entry) => entry !== null && partPinsEqual(entry, pin));
-    if (index < 0)
-      return false;
-    remaining.splice(index, 1);
+function recordGitPinBytes(history, pins, bytes) {
+  const digest = createHash4("sha256").update(bytes).digest("hex");
+  const source = history.source;
+  for (const pin of pins) {
+    if (digest !== pin.digest)
+      continue;
+    let verified = source[observedPins];
+    if (verified === undefined) {
+      verified = new Set;
+      Object.defineProperty(source, observedPins, { enumerable: true, value: verified });
+    }
+    verified.add(gitPinKey(pin));
   }
-  return true;
+}
+function inheritObservedGitPins(original, parsed) {
+  const verified = original[observedPins];
+  if (verified !== undefined)
+    Object.defineProperty(parsed, observedPins, { enumerable: true, value: verified });
+}
+function hasObservedGitPin(histories, pin) {
+  const key = gitPinKey(pin);
+  return histories.some(({ source }) => source[observedPins]?.has(key) === true);
 }
 
-// plugins/omp-build/engine/record-integrity.ts
-var NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-function nativeInstant(value) {
-  if (typeof value !== "string" || !NATIVE_INSTANT.test(value))
-    return null;
-  const time = Date.parse(value);
-  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 19) !== value.slice(0, 19))
-    return null;
-  return time;
+// plugins/omp-build/engine/historical-record-pins.ts
+var observedRecords = Symbol.for("omp-build.historical-record-pins");
+function recordKey(ref) {
+  const { scope, kind, recordId } = ref.record;
+  return JSON.stringify([scope.repository, scope.target, kind, recordId, ref.selector, ref.digest]);
 }
-function recordIntegrity(parts, { kind, recordId }) {
-  if (parts.length === 0) {
-    return { reason: "record-unreadable", detail: `${kind} record ${recordId} has no native parts` };
+function noteObservedRecordPin(source, ref) {
+  let verified = source[observedRecords];
+  if (verified === undefined) {
+    verified = new Set;
+    Object.defineProperty(source, observedRecords, { enumerable: true, value: verified });
   }
-  for (const [index, part] of parts.entries()) {
-    const created = nativeInstant(part.createdAt);
-    const updated = nativeInstant(part.updatedAt);
-    const identity = `${kind} record ${recordId} part ${index + 1}/${parts.length}`;
-    if (created === null || updated === null || updated < created) {
-      return {
-        reason: "record-unreadable",
-        detail: `${identity} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)})`
-      };
-    }
-    if (updated !== created)
-      return { reason: "record-edited", detail: `${identity} was revised after publication` };
-  }
-  return null;
+  verified.add(recordKey(ref));
+}
+function hasObservedRecordPin(histories, ref) {
+  const key = recordKey(ref);
+  return histories.some(({ source }) => source[observedRecords]?.has(key) === true);
 }
 
 // plugins/omp-build/engine/history-graph-operation.ts
@@ -9040,6 +8808,36 @@ function refuseDuplicateOperation(operation, operationsById, recordsById, diagno
 }
 function duplicateDiagnostic(record) {
   return diagnostic2("duplicate-reference", `Operation ${record.operationId} or record ${record.recordId} appears more than once with different content`);
+}
+
+// plugins/omp-build/engine/record-integrity.ts
+var NATIVE_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+function nativeInstant(value) {
+  if (typeof value !== "string" || !NATIVE_INSTANT.test(value))
+    return null;
+  const time = Date.parse(value);
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 19) !== value.slice(0, 19))
+    return null;
+  return time;
+}
+function recordIntegrity(parts, { kind, recordId }) {
+  if (parts.length === 0) {
+    return { reason: "record-unreadable", detail: `${kind} record ${recordId} has no native parts` };
+  }
+  for (const [index, part] of parts.entries()) {
+    const created = nativeInstant(part.createdAt);
+    const updated = nativeInstant(part.updatedAt);
+    const identity = `${kind} record ${recordId} part ${index + 1}/${parts.length}`;
+    if (created === null || updated === null || updated < created) {
+      return {
+        reason: "record-unreadable",
+        detail: `${identity} has unreadable native creation/revision facts (${JSON.stringify(part.createdAt)}, ${JSON.stringify(part.updatedAt)})`
+      };
+    }
+    if (updated !== created)
+      return { reason: "record-edited", detail: `${identity} was revised after publication` };
+  }
+  return null;
 }
 
 // plugins/omp-build/engine/workflow-control.ts
@@ -9201,6 +8999,318 @@ function successorClaim(history, mandate) {
     };
   }
   return { status: "next", ref: first };
+}
+
+// plugins/omp-build/engine/historical-action-inputs.ts
+function selectedRecordValue(value, selector) {
+  if (!selector.startsWith("/"))
+    return;
+  let current = value;
+  for (const token of selector.slice(1).split("/")) {
+    if (current === null || typeof current !== "object")
+      return;
+    if (/~(?![01])/.test(token))
+      return;
+    const key = token.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (Array.isArray(current) && !/^(0|[1-9]\d*)$/.test(key))
+      return;
+    if (!Object.hasOwn(current, key))
+      return;
+    current = current[key];
+  }
+  return current;
+}
+function recordRefDiagnostics(label, ref, histories) {
+  const history = historyFor(ref.record.scope, histories);
+  if (history === null)
+    return [diagnostic2("missing-history", `${label} has no history for ${ref.record.recordId}`)];
+  const bound = bindExternalRef(ref.record, history);
+  if (!bound.ok)
+    return [...bound.diagnostics];
+  if (!equalScope({ repository: bound.value.repository, target: bound.value.target }, ref.record.scope))
+    return [diagnostic2("unbound", `${label} record ${ref.record.recordId} belongs to another scope`)];
+  const selected = selectedRecordValue(bound.value, ref.selector);
+  return selected !== undefined && canonicalValueDigest(selected) === ref.digest ? [] : [diagnostic2("mismatch", `${label} observation digest does not match ${ref.record.recordId}`)];
+}
+var payloadOnlyKinds = {
+  "operator-control": true,
+  "spec-identity": true,
+  "cause-disposition": true,
+  "cause-operation": true,
+  mandate: true,
+  "workflow-binding": true,
+  decision: true,
+  review: true,
+  "fix-request": true,
+  "correction-result": true,
+  "falsification-result": true
+};
+function expandedSelectorAllowed({ record: { kind }, selector }) {
+  if (selector.includes("/native") || selector.includes("/rawAttempts"))
+    return false;
+  if (Object.hasOwn(payloadOnlyKinds, kind))
+    return selector === "/payload";
+  if (kind === "contribution")
+    return selector === "/payload" || /^\/payload\/findings(?:\/\d+)?$/.test(selector);
+  if (kind === "review-attempt")
+    return /^\/payload(?:\/inputSnapshot(?:\/.*)?)?$/.test(selector);
+  if (kind !== "action-receipt" && kind !== "fix-result")
+    return false;
+  return selector === "/payload" || kind === "action-receipt" && (selectorAdmitted("plan", selector) || selectorAdmitted("plan-review", selector)) || selectorAdmitted("implementation", selector) || selectorAdmitted("integration", selector) || selectorAdmitted("criterion-evidence", selector);
+}
+function expandedRecordDiagnostics(ref, histories) {
+  if (!expandedSelectorAllowed(ref))
+    return [diagnostic2("unconfirmed", "Historical action manifest cites an unsupported record selector")];
+  if (historyFor(ref.record.scope, histories) === null && hasObservedRecordPin(histories, ref))
+    return [];
+  return recordRefDiagnostics("Historical action manifest", ref, histories);
+}
+function authenticateHistoricalActionInputs(inputs, histories) {
+  const valid = validateActionInputs(inputs);
+  if (!valid.ok)
+    return valid;
+  for (const ref of valid.value.manifest.expandedContext) {
+    if (ref.source === "record") {
+      const diagnostics = expandedRecordDiagnostics(ref, histories);
+      if (diagnostics.length !== 0)
+        return { ok: false, diagnostics };
+    } else if (!hasObservedGitPin(histories, ref)) {
+      return {
+        ok: false,
+        diagnostics: [
+          diagnostic2("unconfirmed", `Historical action manifest has no authenticated bytes for ${ref.path}`)
+        ]
+      };
+    }
+  }
+  return valid;
+}
+function authenticatedReceiptActionInputs(payload, histories) {
+  return authenticateHistoricalActionInputs(payload.inputs, histories).ok && (payload.action !== "plan-review" || payload.slots.every((slot) => !slot.action || authenticateHistoricalActionInputs(slot.action.inputs, histories).ok));
+}
+
+// plugins/omp-build/roxabi/uw-git-bytes.ts
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+// plugins/omp-build/roxabi/workflow-config-digest.ts
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+function shippedProductVersion() {
+  const start = dirname(fileURLToPath(import.meta.url));
+  for (const path of [join(start, "package.json"), join(start, "..", "package.json")]) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8"));
+      if (parsed.name === "omp-build" && typeof parsed.version === "string" && parsed.version.length > 0)
+        return parsed.version;
+    } catch {}
+  }
+  throw new Error("omp-build package.json version is missing");
+}
+
+// plugins/omp-build/roxabi/uw-action-result.ts
+function actionFailure(code, message, detail) {
+  const diagnostic = detail === undefined ? { code, message } : { code, message, detail };
+  return { ok: false, diagnostics: [diagnostic] };
+}
+function isGitSha(value) {
+  return /^[0-9a-f]{40}$/.test(value);
+}
+
+// plugins/omp-build/roxabi/uw-github-blobs.ts
+var import_preparation_graphql = __toESM(require_preparation_graphql(), 1);
+import { createHash as createHash5 } from "node:crypto";
+function gitBlobSha(bytes) {
+  return createHash5("sha1").update(`blob ${bytes.byteLength}\x00`).update(bytes).digest("hex");
+}
+function decodeBase64(value, size) {
+  const compact = value.replace(/[ \t\r\n]/g, "");
+  if (compact.length === 0)
+    return size === 0 ? new Uint8Array : null;
+  if (compact.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(compact))
+    return null;
+  const bytes = Buffer.from(compact, "base64");
+  if (bytes.toString("base64") !== compact || bytes.byteLength !== size)
+    return null;
+  return bytes;
+}
+function record2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function blobOid(parsed) {
+  if (!record2(parsed) || !("data" in parsed) || "errors" in parsed && (!Array.isArray(parsed.errors) || parsed.errors.length > 0))
+    return "unreadable";
+  const data = parsed.data;
+  if (!record2(data) || !("repository" in data))
+    return "unreadable";
+  const repository = data.repository;
+  if (!record2(repository) || !("object" in repository))
+    return "unreadable";
+  if (repository.object === null)
+    return "absent";
+  const object = repository.object;
+  if (!record2(object) || !("oid" in object) || typeof object.oid !== "string" || !isGitSha(object.oid))
+    return "absent";
+  return object.oid;
+}
+function blobBody(parsed) {
+  if (!record2(parsed) || parsed.encoding !== "base64" || typeof parsed.content !== "string" || typeof parsed.sha !== "string")
+    return null;
+  if (typeof parsed.size !== "number" || !Number.isSafeInteger(parsed.size) || parsed.size < 0)
+    return null;
+  return { content: parsed.content, size: parsed.size, sha: parsed.sha };
+}
+function ghFailure(error, missing) {
+  const detail = error instanceof Error ? error.message : "no local fallback";
+  return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}. ${detail}`);
+}
+async function ghText(gh, cwd, args, missing) {
+  try {
+    return { ok: true, value: await gh(cwd ?? "", args) };
+  } catch (error) {
+    return ghFailure(error, missing);
+  }
+}
+function jsonBody(raw, missing, label) {
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch {
+    return actionFailure("pinned-file-unreadable", `GitHub ${label} is not JSON for ${missing}`);
+  }
+}
+async function readGitHubBlob(request) {
+  const missing = `${request.repository}@${request.commit}:${request.path}`;
+  const slash = request.repository.indexOf("/");
+  const located = await ghText(request.gh, request.cwd, [
+    "api",
+    "graphql",
+    "-f",
+    `query=${import_preparation_graphql.BLOB_QUERY}`,
+    "-f",
+    `owner=${request.repository.slice(0, slash)}`,
+    "-f",
+    `name=${request.repository.slice(slash + 1)}`,
+    "-f",
+    `expression=${request.commit}:${request.path}`
+  ], missing);
+  if (!located.ok)
+    return located;
+  const lookup = jsonBody(located.value, missing, "blob lookup");
+  if (!lookup.ok)
+    return lookup;
+  const oid = blobOid(lookup.value);
+  if (oid === "unreadable")
+    return actionFailure("pinned-file-unreadable", `Cross-repository Git object is unreadable: ${missing}`);
+  if (oid === "absent")
+    return actionFailure("pinned-file-incomplete", `Pinned path is not a Git blob: ${missing}`);
+  return fetchGitHubBlob(request, oid);
+}
+async function fetchGitHubBlob(request, oid) {
+  const missing = `${request.repository}@${request.commit}:${request.path}`;
+  const raw = await ghText(request.gh, request.cwd, [
+    "api",
+    "--method",
+    "GET",
+    `repos/${request.repository}/git/blobs/${oid}`,
+    "-H",
+    "Accept: application/vnd.github+json"
+  ], missing);
+  if (!raw.ok)
+    return raw;
+  const parsed = jsonBody(raw.value, missing, "blob response");
+  if (!parsed.ok)
+    return parsed;
+  const body = blobBody(parsed.value);
+  if (body === null || body.sha !== oid)
+    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
+  const bytes = decodeBase64(body.content, body.size);
+  if (bytes === null || gitBlobSha(bytes) !== oid)
+    return actionFailure("pinned-file-incomplete", `Pinned blob sha does not match decoded bytes: ${missing}`);
+  return { ok: true, value: bytes };
+}
+
+// plugins/omp-build/roxabi/uw-git-bytes.ts
+var execFileAsync = promisify(execFile);
+var REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+function githubRepository(url) {
+  const match = url.trim().match(/^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/);
+  return match?.[1] ?? null;
+}
+async function git(cwd, args) {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
+      encoding: "buffer",
+      maxBuffer: 32 * 1024 * 1024,
+      timeout: 30000
+    });
+    return { ok: true, stdout };
+  } catch {
+    return { ok: false };
+  }
+}
+async function checkoutRepository(cwd) {
+  const shown = await git(cwd, ["config", "--get", "remote.origin.url"]);
+  if (!shown.ok)
+    return null;
+  return githubRepository(shown.stdout.toString("utf8"));
+}
+function pathSegments(path) {
+  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path))
+    return false;
+  const segments = path.split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+async function readGitFileBytes(request) {
+  if (!REPOSITORY.test(request.repository) || !isGitSha(request.commit) || !repoRelativePathPattern.test(request.path) || !pathSegments(request.path)) {
+    return actionFailure("pinned-file-unreadable", "Pinned file coordinates are incomplete");
+  }
+  if (request.cwd !== undefined && await checkoutRepository(request.cwd) === request.repository) {
+    const expression = `${request.commit}:${request.path}`;
+    const local = await git(request.cwd, ["--no-replace-objects", "cat-file", "blob", expression]);
+    if (local.ok)
+      return { ok: true, value: local.stdout };
+  }
+  return readGitHubBlob(request);
+}
+
+// plugins/omp-build/engine/fix-recovery-part-pins.ts
+import { createHash as createHash6 } from "node:crypto";
+var PART_HEADER = /^<!-- omp-build-record v=1 kind=[a-z][a-z0-9-]* id=[^\s<>]+ operationId=[^\s<>]+ part=([1-9][0-9]*)\/([1-9][0-9]*) data=[A-Za-z0-9_-]+ -->\n/;
+function commentAsPartPin(comment) {
+  const match = PART_HEADER.exec(comment.body);
+  if (match === null || !comment.author || !comment.nativeId || !comment.locator)
+    return null;
+  const part = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isSafeInteger(part) || !Number.isSafeInteger(total) || part > total)
+    return null;
+  return {
+    locator: comment.locator,
+    nativeId: comment.nativeId,
+    author: comment.author,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt,
+    bodyDigest: createHash6("sha256").update(comment.body, "utf8").digest("hex"),
+    part,
+    total
+  };
+}
+function partPinsEqual(left, right) {
+  return left.locator === right.locator && left.nativeId === right.nativeId && left.author === right.author && left.createdAt === right.createdAt && left.updatedAt === right.updatedAt && left.bodyDigest === right.bodyDigest && left.part === right.part && left.total === right.total;
+}
+function observedPartsMatch(expected, operation, exact = true) {
+  const observed = operation.parts.map(commentAsPartPin);
+  if (exact && observed.length !== expected.length || observed.some((entry) => entry === null))
+    return false;
+  const remaining = [...observed];
+  for (const pin of expected) {
+    const index = remaining.findIndex((entry) => entry !== null && partPinsEqual(entry, pin));
+    if (index < 0)
+      return false;
+    remaining.splice(index, 1);
+  }
+  return true;
 }
 
 // plugins/omp-build/engine/fix-recovery-discovery-records.ts
@@ -10784,13 +10894,13 @@ function catalogueForAction(inputs, catalogues) {
 
 // plugins/omp-build/engine/review-original-action.ts
 function matchesContributionSlot(source, slot, inventoryId) {
-  return source.inputs.includes(inventoryId) && source.payload.host.origin === "native" && source.payload.host.childId !== null && source.payload.host.slotId === slot.slotId && source.payload.host.phase === slot.phase && source.payload.host.role === slot.role && source.payload.host.chunk === slot.chunk && slot.action !== undefined && (source.payload.host.action === undefined || canonicalValueDigest(source.payload.host.action) === canonicalValueDigest(slot.action)) && validateActionInputs(slot.action.inputs).ok;
+  return source.inputs.includes(inventoryId) && source.payload.host.origin === "native" && source.payload.host.childId !== null && source.payload.host.slotId === slot.slotId && source.payload.host.phase === slot.phase && source.payload.host.role === slot.role && source.payload.host.chunk === slot.chunk && slot.action !== undefined && (source.payload.host.action === undefined || canonicalValueDigest(source.payload.host.action) === canonicalValueDigest(slot.action));
 }
 var unavailable = () => ({
   ok: false,
   diagnostics: [diagnostic2("cause-source-unconfirmed", "Original contribution action provenance is not authenticated")]
 });
-function originalContributionAction(source, history) {
+function originalContributionAction(source, history, histories = [history]) {
   if (!accounted(history, source) || source.payload.inventoryId === null || !source.inputs.includes(source.payload.inventoryId))
     return unavailable();
   const inventories = history.operations.flatMap((operation) => operation.authority !== "foreign" && operation.record?.kind === "review-attempt" && operation.record.recordId === source.payload.inventoryId ? [operation.record] : []);
@@ -10801,11 +10911,11 @@ function originalContributionAction(source, history) {
   const slot = slots[0];
   if (slots.length !== 1 || slot === undefined || slot.action === undefined || !matchesContributionSlot(source, slot, inventory.recordId) || slot.action.inputs.fingerprint !== inventory.payload.actionInputDigest || slot.action.inputs.manifest.code.head !== inventory.payload.candidateGitSHA || inventory.payload.stage === "initial" && inventory.payload.purpose === "review" && canonicalValueDigest(slot.action.inputs) !== canonicalValueDigest(inventory.payload.inputSnapshot))
     return unavailable();
-  return { ok: true, value: slot.action.inputs };
+  return authenticateHistoricalActionInputs(slot.action.inputs, histories);
 }
-function inspectContributionFindings(source, history, catalogues) {
+function inspectContributionFindings(source, history, catalogues, histories = [history]) {
   const inspections = new Map;
-  const action = originalContributionAction(source, history);
+  const action = originalContributionAction(source, history, histories);
   const catalogue = action.ok ? catalogueForAction(action.value, catalogues) : action;
   for (const original of source.payload.findings ?? []) {
     const inspection = inspectFinding(original.data, catalogue.ok ? catalogue.value : []);
@@ -10833,11 +10943,11 @@ function negativeFor(history, root, entry) {
   const payload = entry.payload;
   const binding = payload.host.action;
   const slot = root.payload.slots.find((candidate) => candidate.slotId === payload.host.slotId);
-  return payload.inventoryId === root.recordId && slot !== undefined && binding !== undefined && matchesContributionSlot(entry, slot, root.recordId) && binding.inputs.fingerprint === root.payload.actionInputDigest && binding.inputs.manifest.code.head === root.payload.candidateGitSHA && (!isInitialPullRequestReviewInventory(root.payload) || same(binding.inputs, root.payload.inputSnapshot)) && payload.native?.completion === "completed" && payload.native.strict === "valid" && missingContextOutputSchema.safeParse(payload.structured).success && payload.rawAttempts.some((attempt) => same(attempt.data, payload.structured));
+  return payload.inventoryId === root.recordId && slot !== undefined && binding !== undefined && matchesContributionSlot(entry, slot, root.recordId) && validateActionInputs(binding.inputs).ok && binding.inputs.fingerprint === root.payload.actionInputDigest && binding.inputs.manifest.code.head === root.payload.candidateGitSHA && (!isInitialPullRequestReviewInventory(root.payload) || same(binding.inputs, root.payload.inputSnapshot)) && payload.native?.completion === "completed" && payload.native.strict === "valid" && missingContextOutputSchema.safeParse(payload.structured).success && payload.rawAttempts.some((attempt) => same(attempt.data, payload.structured));
 }
-function resolvedOutputValid(next, slot, rootId, snapshot) {
+function resolvedOutputValid(next, slot, rootId, snapshot, histories) {
   const binding = slot.action;
-  return matchesContributionSlot(next, slot, rootId) && binding !== undefined && same(binding.inputs, snapshot) && next.payload.native?.completion === "completed" && next.payload.native.strict === "valid" && producerOutputValid(slot.output, next.payload.structured) && next.payload.rawAttempts.some((attempt) => same(attempt.data, next.payload.structured));
+  return matchesContributionSlot(next, slot, rootId) && binding !== undefined && same(binding.inputs, snapshot) && next.payload.native?.completion === "completed" && next.payload.native.strict === "valid" && producerOutputValid(slot.output, next.payload.structured) && next.payload.rawAttempts.some((attempt) => same(attempt.data, next.payload.structured)) && authenticateHistoricalActionInputs(snapshot, histories).ok;
 }
 
 // plugins/omp-build/engine/criterion-admission.ts
@@ -11140,18 +11250,6 @@ function citedOperationIntegrity(history, recordId) {
   const integrity = recordIntegrity(operation.parts, operation.record);
   return integrity === null ? null : diagnostic2(integrity.reason, integrity.detail);
 }
-function pointer(value, selector) {
-  if (selector === "")
-    return value;
-  let current = value;
-  for (const raw of selector.split("/").slice(1)) {
-    if (current === null || typeof current !== "object")
-      return;
-    const key = raw.replaceAll("~1", "/").replaceAll("~0", "~");
-    current = Array.isArray(current) ? current[Number(key)] : current[key];
-  }
-  return current;
-}
 function observationRefDiagnostics(evidenceId, ref, histories, pins) {
   if (ref.source === "git-file") {
     const selected = pins.some((pin) => pin.repository === ref.repository && pin.commit === ref.commit && pin.path === ref.path && pin.digest === ref.digest);
@@ -11215,6 +11313,9 @@ function testRunsMatchHostCapture(evidence, receipt) {
   }));
 }
 function observationAuthenticationDiagnostics(evidence, histories, pins, receipt) {
+  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
+  if (!authenticated.ok)
+    return authenticated.diagnostics;
   const diagnostics = versionClaimReferences(evidence).flatMap((ref) => observationRefDiagnostics(evidence.id, ref, histories, pins));
   if (evidence.method === "test") {
     if (!testRunsMatchHostCapture(evidence, receipt))
@@ -11243,22 +11344,6 @@ function recordSourceDiagnostics(evidenceId, ref, histories) {
   const integrity = citedOperationIntegrity(history, ref.recordId);
   return integrity === null ? [] : [integrity];
 }
-function recordRefDiagnostics(evidenceId, ref, histories) {
-  const history = historyFor(ref.record.scope, histories);
-  if (history === null)
-    return [diagnostic2("missing-history", `Evidence ${evidenceId} has no history for ${ref.record.recordId}`)];
-  const bound = bindExternalRef(ref.record, history);
-  if (!bound.ok)
-    return [...bound.diagnostics];
-  const integrity = citedOperationIntegrity(history, ref.record.recordId);
-  if (integrity !== null)
-    return [integrity];
-  const selected = pointer(bound.value, ref.selector);
-  if (selected === undefined || canonicalValueDigest(selected) !== ref.digest) {
-    return [diagnostic2("mismatch", `Evidence ${evidenceId} observation digest does not match ${ref.record.recordId}`)];
-  }
-  return [];
-}
 
 // plugins/omp-build/engine/delivery-eligibility.ts
 function uniqueAccounted(items, label) {
@@ -11281,7 +11366,7 @@ function integrationStartPaired(history, result) {
   const record = bound.value;
   return record.kind === "action-receipt" && record.payload.action === "integrate" && record.payload.phase === "start" && record.recordId === payload.start.recordId && record.repository === payload.start.scope.repository && record.target === payload.start.scope.target && record.payload.actionId === payload.actionId && sameRef2(record.payload.mandate, payload.mandate) && canonicalValueDigest(record.payload.inputs) === canonicalValueDigest(payload.inputs) && canonicalValueDigest(record.payload.exactInputs) === canonicalValueDigest(payload.exactInputs);
 }
-function currentPlanCandidate(record, specDigest, mandate) {
+function currentPlanCandidate(record, specDigest, mandate, histories) {
   if (record.kind !== "action-receipt" || !planReceiptEligible(record))
     return [];
   if (record.payload.action !== "plan" || record.payload.phase !== "result")
@@ -11292,10 +11377,12 @@ function currentPlanCandidate(record, specDigest, mandate) {
     return [];
   if (record.payload.exactInputs.specDigest !== specDigest)
     return [];
+  if (!authenticateHistoricalActionInputs(record.payload.inputs, histories).ok)
+    return [];
   return [{ record, exact: record.payload.exactInputs }];
 }
 function currentPlanReceipt(histories, specDigest, mandate) {
-  const plans = histories.flatMap((history) => recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate)));
+  const plans = histories.flatMap((history) => recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate, histories)));
   const drafts = uniqueAccounted(plans.filter((row) => row.exact.amendsReviewActionId === null), "current plan draft");
   if (!drafts.ok)
     return drafts;
@@ -11309,14 +11396,14 @@ function currentPlanReceipt(histories, specDigest, mandate) {
       return false;
     if (!("draftActionId" in review.payload.exactInputs))
       return false;
-    return review.payload.actionId === row.exact.amendsReviewActionId && review.payload.exactInputs.draftActionId === draft.record.payload.actionId;
+    return review.payload.actionId === row.exact.amendsReviewActionId && review.payload.exactInputs.draftActionId === draft.record.payload.actionId && authenticatedReceiptActionInputs(review.payload, histories);
   })));
   const selected = uniqueAccounted(amendments, "current plan amendment");
   if (!selected.ok)
     return selected;
   return { ok: true, value: selected.value?.record ?? draft.record };
 }
-function implementationStartPaired(history, result) {
+function implementationStartPaired(history, result, histories = [history]) {
   if (result.payload.action !== "implement" || result.payload.phase !== "result")
     return false;
   if (!("mandateId" in result.payload.exactInputs) || !("planActionId" in result.payload.exactInputs))
@@ -11327,7 +11414,7 @@ function implementationStartPaired(history, result) {
       return false;
     if (!("mandateId" in record.payload.exactInputs) || !("planActionId" in record.payload.exactInputs))
       return false;
-    return record.payload.actionId === result.payload.actionId && record.payload.exactInputs.mandateId === resultExact.mandateId && record.payload.exactInputs.planActionId === resultExact.planActionId;
+    return record.payload.actionId === result.payload.actionId && record.payload.exactInputs.mandateId === resultExact.mandateId && record.payload.exactInputs.planActionId === resultExact.planActionId && authenticateHistoricalActionInputs(record.payload.inputs, histories).ok;
   });
 }
 
@@ -11630,6 +11717,12 @@ function unboundPinnedMandate(inputs, histories) {
   return { ok: true, value: resolved.value };
 }
 function resolveManifestMandate(inputs, histories) {
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories);
+  if (!authenticated.ok)
+    return authenticated;
+  return resolveAuthenticatedManifestMandate(authenticated.value, histories);
+}
+function resolveAuthenticatedManifestMandate(inputs, histories) {
   const { subject, spec, acceptedSources } = inputs.manifest;
   if (subject.kind !== "uw" || spec.kind !== "accepted" || !equalScope(spec.effective.own.uw, subject.uw))
     return fail([diagnostic2("unconfirmed", "Action inputs do not identify an accepted UW Spec")]);
@@ -11705,7 +11798,7 @@ var ref2 = (record) => ({
   selector: "/payload",
   digest: canonicalValueDigest(record.payload)
 });
-function correctionDecision(history, records, source, inventory, inputs, catalogues) {
+function correctionDecision(history, records, source, inventory, inputs) {
   const decisions = inputs.stageSources.filter((item) => item.record.kind === "decision" && item.selector === "/payload");
   const decisionRef = decisions[0];
   if (decisions.length !== 1 || decisionRef === undefined)
@@ -11714,9 +11807,6 @@ function correctionDecision(history, records, source, inventory, inputs, catalog
   const decision = matching[0];
   if (matching.length !== 1 || decision?.kind !== "decision" || !accounted(history, decision) || canonicalValueDigest(ref2(decision)) !== canonicalValueDigest(decisionRef) || !inventory.inputs.includes(decision.recordId) || !source.inputs.includes(decision.recordId))
     return failure3();
-  const bindings = validateDecisionBindings(decision, history, catalogues);
-  if (!bindings.admissible)
-    return { ok: false, diagnostics: bindings.diagnostics };
   return { ok: true, value: { decision, decisionRef } };
 }
 function correctionBinding(subject, histories, basis) {
@@ -11734,7 +11824,7 @@ function correctionBinding(subject, histories, basis) {
     return failure3();
   return { ok: true, value: { bindingRef, bindingRecord: binding } };
 }
-function correctionInventory(history, records, source) {
+function correctionInventory(history, records, source, histories) {
   const inventories = records.filter((record) => record.kind === "review-attempt" && record.recordId === source.payload.inventoryId);
   const inventory = inventories[0];
   if (inventories.length !== 1 || inventory?.kind !== "review-attempt" || inventory.payload.stage !== "initial" || inventory.payload.purpose !== "correction" || !accounted(history, inventory) || !source.inputs.includes(inventory.recordId))
@@ -11742,7 +11832,7 @@ function correctionInventory(history, records, source) {
   const requestId = inventory.payload.requestId;
   const slots = inventory.payload.slots.filter((slot) => slot.slotId === source.payload.host.slotId);
   const slot = slots[0];
-  if (slots.length !== 1 || slot?.action === undefined || !resolvedOutputValid(source, slot, inventory.recordId, slot.action.inputs) || !validateActionInputs(slot.action.inputs).ok || slot.action.inputs.manifest.purpose !== "correction" || slot.action.inputs.fingerprint !== inventory.payload.actionInputDigest || slot.action.inputs.manifest.code.head !== inventory.payload.candidateGitSHA)
+  if (slots.length !== 1 || slot?.action === undefined || !resolvedOutputValid(source, slot, inventory.recordId, slot.action.inputs, histories) || slot.action.inputs.manifest.purpose !== "correction" || slot.action.inputs.fingerprint !== inventory.payload.actionInputDigest || slot.action.inputs.manifest.code.head !== inventory.payload.candidateGitSHA)
     return failure3();
   return { ok: true, value: { inventory, requestId, inputs: slot.action.inputs } };
 }
@@ -11759,7 +11849,7 @@ function resolveHistoricalCorrectionBasis(input) {
   if (history === null || workflowOperationProblem(history) !== null || !accounted(history, source) || source.payload.inventoryId === null)
     return failure3();
   const records = recordsOf(history);
-  const selectedInventory = correctionInventory(history, records, source);
+  const selectedInventory = correctionInventory(history, records, source, input.histories);
   if (!selectedInventory.ok)
     return selectedInventory;
   const { inventory, requestId, inputs } = selectedInventory.value;
@@ -11767,11 +11857,11 @@ function resolveHistoricalCorrectionBasis(input) {
   const fix = requests[0];
   if (requests.length !== 1 || fix?.kind !== "fix-request" || !accounted(history, fix) || !inventory.inputs.includes(fix.recordId) || !source.inputs.includes(fix.recordId))
     return failure3();
-  const selectedDecision = correctionDecision(history, records, source, inventory, inputs, input.catalogues);
+  const selectedDecision = correctionDecision(history, records, source, inventory, inputs);
   if (!selectedDecision.ok)
     return selectedDecision;
   const { decision, decisionRef } = selectedDecision.value;
-  const resolved = resolveCorrectionRequestBasis(history, fix, decision, input.catalogues);
+  const resolved = resolveCorrectionRequestBasis(history, fix, decision, input.catalogues, input.histories);
   if (!resolved.ok)
     return resolved;
   const basis = resolved.value;
@@ -11886,15 +11976,16 @@ function samePlan(left, right) {
 function validApplied(input, applied, inventory, basis) {
   const action = applied.payload.host.action;
   const payload = input.lineage.correction.payload;
-  if (!action || !validateActionInputs(action.inputs).ok || inventory.payload.stage !== "initial" || inventory.payload.purpose !== "correction")
+  const { inputs } = basis;
+  if (!action || inventory.payload.stage !== "initial" || inventory.payload.purpose !== "correction")
     return false;
-  if (inventory.payload.requestId !== input.historical.requestRef.record.recordId || !inventory.inputs.includes(input.decision.recordId) || !applied.inputs.includes(inventory.recordId) || inventory.payload.actionInputDigest !== action.inputs.fingerprint)
+  if (inventory.payload.requestId !== input.historical.requestRef.record.recordId || !inventory.inputs.includes(input.decision.recordId) || !applied.inputs.includes(inventory.recordId) || inventory.payload.actionInputDigest !== inputs.fingerprint)
     return false;
-  if (!currentCorrectionContext(action.inputs, input.fix, input.histories, input.context) || inventory.payload.candidateGitSHA !== action.inputs.manifest.code.head || !samePlan(basis, input.historical))
+  if (!currentCorrectionContext(inputs, input.fix, input.histories, input.context) || inventory.payload.candidateGitSHA !== inputs.manifest.code.head || !samePlan(basis, input.historical))
     return false;
-  if (!action.inputs.stageSources.some((ref) => ref.record.kind === "decision" && ref.record.recordId === input.decision.recordId && ref.record.scope.repository === input.decision.repository && ref.record.scope.target === input.decision.target && ref.selector === "/payload" && ref.digest === canonicalValueDigest(input.decision.payload)))
+  if (!inputs.stageSources.some((ref) => ref.record.kind === "decision" && ref.record.recordId === input.decision.recordId && ref.record.scope.repository === input.decision.repository && ref.record.scope.target === input.decision.target && ref.selector === "/payload" && ref.digest === canonicalValueDigest(input.decision.payload)))
     return false;
-  const slots = inventory.payload.slots.filter((slot) => slot.slotId === applied.payload.host.slotId && slot.output === "action-result" && slot.phase === "fix" && slot.role === applied.payload.host.role && slot.correction !== undefined && slot.correction.phase === "apply" && slot.correction.causeId === payload.causeId && slot.action?.actionId === action.actionId && canonicalValueDigest(slot.action.inputs) === canonicalValueDigest(action.inputs));
+  const slots = inventory.payload.slots.filter((slot) => slot.slotId === applied.payload.host.slotId && slot.output === "action-result" && slot.phase === "fix" && slot.role === applied.payload.host.role && slot.correction !== undefined && slot.correction.phase === "apply" && slot.correction.causeId === payload.causeId && slot.action?.actionId === action.actionId && canonicalValueDigest(slot.action.inputs) === canonicalValueDigest(inputs));
   const output = applyActionResultSchema.safeParse(applied.payload.structured);
   return slots.length === 1 && genuineCorrectionSource(applied) && output.success && output.data.outcome === "applied" && output.data.commitSHAs.length === 1 && output.data.commitSHAs[0] === payload.commitSHAs[0] && finalApplyAttempt(input.lineage.raw, payload.attempt, applied.recordId);
 }
@@ -11906,7 +11997,7 @@ function validObservation(input, applied) {
   if (input.phase !== "revalidate" && input.phase !== "restore-proof")
     return false;
   const action = input.contribution.payload.host.action;
-  if (!action || !correction.inputs.includes(input.contribution.recordId) || !payload.criterionObservations?.some((item) => item.sourceContributionId === input.contribution.recordId && item.head === input.context.head))
+  if (!action || !authenticateHistoricalActionInputs(action.inputs, input.histories).ok || !correction.inputs.includes(input.contribution.recordId) || !payload.criterionObservations?.some((item) => item.sourceContributionId === input.contribution.recordId && item.head === input.context.head))
     return false;
   if (action.inputs.manifest.code.head !== input.context.head || input.inventory.payload.candidateGitSHA !== input.context.head || !input.inventory.inputs.includes(applied.recordId))
     return false;
@@ -11980,14 +12071,14 @@ function admitCorrectionSourceBinding(fix, histories, context, catalogues) {
   const action = source.host.action;
   if (!native || !observation || !action || !genuineCorrectionSource(contribution))
     return invalid();
-  const manifest = action.inputs.manifest;
-  if (!currentCorrectionContext(action.inputs, fix, histories, context) || !correctionCurrentPlan(manifest, histories, context))
+  const { inputs } = historical;
+  if (!currentCorrectionContext(inputs, fix, histories, context) || !correctionCurrentPlan(inputs.manifest, histories, context))
     return invalid();
   const inventory = source.inventoryId === null ? null : correctionRecord(fix, histories, source.inventoryId, "review-attempt");
-  if (inventory?.payload.stage !== "initial" || inventory.payload.purpose !== "correction" || inventory.payload.requestId !== request.recordId || inventory.payload.actionInputDigest !== action.inputs.fingerprint || !inventory.inputs.includes(decision.recordId) || !contribution.inputs.includes(inventory.recordId))
+  if (inventory?.payload.stage !== "initial" || inventory.payload.purpose !== "correction" || inventory.payload.requestId !== request.recordId || inventory.payload.actionInputDigest !== inputs.fingerprint || !inventory.inputs.includes(decision.recordId) || !contribution.inputs.includes(inventory.recordId))
     return invalid();
   const slots = inventory.payload.slots.filter((slot) => slot.slotId === source.host.slotId && slot.phase === source.host.phase && slot.role === source.host.role);
-  const slot = slots.find((item) => item.output === "action-result" && item.action?.actionId === action.actionId && canonicalValueDigest(item.action.inputs) === canonicalValueDigest(action.inputs));
+  const slot = slots.find((item) => item.output === "action-result" && item.action?.actionId === action.actionId && canonicalValueDigest(item.action.inputs) === canonicalValueDigest(inputs));
   if (slots.length !== 1 || !slot?.correction || !decision.payload.judgment.causes.some((cause) => cause.id === slot.correction?.causeId))
     return invalid();
   return {
@@ -12207,7 +12298,7 @@ function testRunsCaptured(evidence, native, actionId, childId, submissionIndex) 
   const runs = [evidence.after.run, ...evidence.before === null ? [] : [evidence.before.run]];
   return evidence.provenance.kind === "native" && same2(evidence.provenance, native.commandProvenance) && evidence.provenance.actionId === actionId && evidence.provenance.childId === childId && evidence.provenance.submissionIndex === submissionIndex && runs.every((run) => evidence.provenance.kind === "native" && evidence.provenance.toolCallIds.includes(run.toolCallId) && (native.commandRuns ?? []).some((item) => same2(item, run)) && (native.bashCalls ?? []).some((call) => call.toolCallId === run.toolCallId && call.result !== null && call.exitCode === run.exitCode && object3(call.input) && call.input.command === run.command));
 }
-function authenticatedSubmission(payload) {
+function authenticatedSubmission(payload, histories) {
   const native = payload.native;
   const binding = payload.host.action;
   const observation = native?.observation;
@@ -12216,7 +12307,7 @@ function authenticatedSubmission(payload) {
   const output = object3(raw) ? raw.structuredOutput : undefined;
   const yieldRaw = submission?.raw;
   const execution = object3(yieldRaw) ? yieldRaw.executionArguments : undefined;
-  return payload.host.origin === "native" && binding !== undefined && validateActionInputs(binding.inputs).ok && native?.completion === "completed" && native.strict === "valid" && observation !== undefined && payload.host.childId === observation.childId && binding.actionId === observation.actionId && submission !== undefined && submission.attemptIndex === observation.submissionIndex && payload.rawAttempts.some((attempt) => same2(attempt, submission)) && object3(raw) && raw.id === observation.childId && object3(output) && output.status === "valid" && same2(output.data, submission.data) && same2(payload.structured, submission.data) && object3(yieldRaw) && typeof yieldRaw.toolCallId === "string" && yieldRaw.toolCallId.length > 0 && object3(execution) && same2(execution.data, submission.data);
+  return payload.host.origin === "native" && binding !== undefined && authenticateHistoricalActionInputs(binding.inputs, histories).ok && native?.completion === "completed" && native.strict === "valid" && observation !== undefined && payload.host.childId === observation.childId && binding.actionId === observation.actionId && submission !== undefined && submission.attemptIndex === observation.submissionIndex && payload.rawAttempts.some((attempt) => same2(attempt, submission)) && object3(raw) && raw.id === observation.childId && object3(output) && output.status === "valid" && same2(output.data, submission.data) && same2(payload.structured, submission.data) && object3(yieldRaw) && typeof yieldRaw.toolCallId === "string" && yieldRaw.toolCallId.length > 0 && object3(execution) && same2(execution.data, submission.data);
 }
 function nativeProvenanceMatches(evidence, native, actionId, childId, submissionIndex) {
   return evidence.provenance.kind === "native" && evidence.provenance.actionId === actionId && evidence.provenance.childId === childId && evidence.provenance.submissionIndex === submissionIndex && evidence.provenance.toolCallIds.every((id) => (native.bashCalls ?? []).some((call) => call.toolCallId === id));
@@ -12248,7 +12339,7 @@ function correctionObservationAuthenticationDiagnostics(evidence, histories, pin
     diagnostics.push(...producerSourceDiagnostics(evidence.id, refs, binding.inputs));
   const observation = native?.observation;
   const submission = observation?.submission;
-  if (!authenticatedSubmission(payload) || observation === undefined || native === null || native === undefined || binding === undefined) {
+  if (!authenticatedSubmission(payload, histories) || observation === undefined || native === null || native === undefined || binding === undefined) {
     diagnostics.push(diagnostic2("unconfirmed", `Evidence ${evidence.id} has no authenticated correction submission`));
     return diagnostics;
   }
@@ -12269,7 +12360,7 @@ function correctionObservationAuthenticationDiagnostics(evidence, histories, pin
 }
 
 // plugins/omp-build/engine/criterion-correction-selection.ts
-function pointer2(value, selector) {
+function pointer(value, selector) {
   let current = value;
   for (const raw of selector.slice(1).split("/")) {
     const key = raw.replaceAll("~1", "/").replaceAll("~0", "~");
@@ -12321,7 +12412,7 @@ function appendCorrectionSelection(ref, histories, inputs, planActionId, mandate
     return;
   }
   const admitted = source?.value ?? null;
-  const value = fix === null ? undefined : pointer2(fix, ref.selector);
+  const value = fix === null ? undefined : pointer(fix, ref.selector);
   if (admitted === null || value === undefined || canonicalValueDigest(value) !== ref.digest) {
     diagnostics.push(diagnostic2("unconfirmed", `Correction delivery ${ref.record.recordId} is not an authenticated current source`));
     return;
@@ -12334,22 +12425,6 @@ function appendCorrectionSelection(ref, histories, inputs, planActionId, mandate
 }
 
 // plugins/omp-build/engine/criterion-decision-selection.ts
-function pointer3(value, selector) {
-  if (selector === "")
-    return value;
-  let current = value;
-  for (const raw of selector.slice(1).split("/")) {
-    const key = raw.replaceAll("~1", "/").replaceAll("~0", "~");
-    if (Array.isArray(current)) {
-      current = current[Number(key)];
-      continue;
-    }
-    if (current === null || typeof current !== "object" || !Object.hasOwn(current, key))
-      return;
-    current = Object.getOwnPropertyDescriptor(current, key)?.value;
-  }
-  return current;
-}
 function receiptEligible(record) {
   if (record.payload.action === "plan")
     return planReceiptEligible(record) && record.payload.phase === "result";
@@ -12383,13 +12458,13 @@ function manifestPins(inputs) {
     ...inputs.manifest.expandedContext.flatMap((ref) => ref.source === "git-file" ? [ref] : [])
   ];
 }
-function admittedImplementation(receipt, history, head, planActionId, mandate) {
+function admittedImplementation(receipt, history, head, planActionId, mandate, histories) {
   const payload = receipt.payload;
   if (payload.action !== "implement" && payload.action !== "integrate" || payload.phase !== "result" || !("planActionId" in payload.exactInputs))
     return false;
   if (!sameRef2(payload.mandate, mandate) || !("mandateId" in payload.exactInputs) || payload.exactInputs.mandateId !== mandate.recordId)
     return false;
-  if (payload.action === "integrate" ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt) : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt))
+  if (payload.action === "integrate" ? !integrationReceiptEligible(receipt) || !integrationStartPaired(history, receipt) : !implementationReceiptEligible(receipt) || !implementationStartPaired(history, receipt, histories))
     return false;
   if (payload.admission?.remoteTip !== head)
     return false;
@@ -12414,11 +12489,16 @@ function appendEvidence2(declaration, receipt, ref, head, histories, pins, diagn
   }
 }
 function appendImplementation(ref, receipt, history, head, planActionId, mandate, histories, pins, diagnostics, declarations, evidence) {
-  if (!admittedImplementation(receipt, history, head, planActionId, mandate)) {
+  if (!admittedImplementation(receipt, history, head, planActionId, mandate, histories)) {
     diagnostics.push(diagnostic2("unconfirmed", `Delivery record ${ref.record.recordId} is not the admitted current head`));
     return;
   }
-  const selected = pointer3(receipt, ref.selector);
+  const authenticated = authenticateHistoricalActionInputs(receipt.payload.inputs, histories);
+  if (!authenticated.ok) {
+    diagnostics.push(...authenticated.diagnostics);
+    return;
+  }
+  const selected = selectedRecordValue(receipt, ref.selector);
   if (selected === undefined || canonicalValueDigest(selected) !== ref.digest) {
     diagnostics.push(diagnostic2("mismatch", `Delivery selector ${ref.selector} does not match its authenticated digest`));
     return;
@@ -12550,7 +12630,7 @@ function initialInventory(records, inventoryId, history) {
   }
   return null;
 }
-function selectedInventory(decision, history) {
+function selectedInventory(decision, history, histories) {
   const records = recordsOf(history);
   const sources = records.filter((record) => record.kind === "contribution" && decision.sourceContributionIds.includes(record.recordId));
   if (sources.length !== decision.sourceContributionIds.length)
@@ -12567,9 +12647,9 @@ function selectedInventory(decision, history) {
   if (selected === null || selected.payload.stage !== "initial" || selected.payload.purpose !== "review")
     return null;
   const snapshot = selected.payload.inputSnapshot;
-  if (!validateActionInputs(snapshot).ok || selected.payload.actionInputDigest !== snapshot.fingerprint)
+  if (selected.payload.actionInputDigest !== snapshot.fingerprint)
     return null;
-  if (!expandedGitPinsObserved([history], snapshot))
+  if (!authenticateHistoricalActionInputs(snapshot, histories).ok)
     return null;
   if (!reviewSubjectBound(selected, selected.payload) || !equalScope(selected, history.source.scope))
     return null;
@@ -12577,20 +12657,20 @@ function selectedInventory(decision, history) {
     return null;
   return selected;
 }
-function reviewInputsFromInventory(decision, history) {
-  const root = selectedInventory(decision, history);
+function reviewInputsFromInventory(decision, history, histories = [history]) {
+  const root = selectedInventory(decision, history, histories);
   if (root === null || root.payload.stage !== "initial" || root.payload.purpose !== "review")
     return null;
   return root.payload.inputSnapshot;
 }
-function reviewRootFromDecision(decision, history) {
+function reviewRootFromDecision(decision, history, histories = [history]) {
   const scope = history.source.scope;
   const bound = bindExternalRef({ scope, kind: "decision", recordId: decision.recordId }, history);
   if (!bound.ok)
     return bound;
   if (JSON.stringify(bound.value) !== JSON.stringify(decision) || decision.payload.judgment.purpose !== "review")
     return fail([diagnostic2("unconfirmed", "Selected review decision is not authenticated")]);
-  const root = selectedInventory(decision.payload.judgment, history);
+  const root = selectedInventory(decision.payload.judgment, history, histories);
   if (root === null)
     return fail([diagnostic2("unconfirmed", "Selected review has no unique initial inventory")]);
   const rootBound = bindExternalRef({ scope, kind: "review-attempt", recordId: root.recordId }, history);
@@ -12599,15 +12679,6 @@ function reviewRootFromDecision(decision, history) {
   if (rootBound.value.kind !== "review-attempt")
     return fail([diagnostic2("kind-mismatch", "Selected review root is not an inventory")]);
   return { ok: true, value: rootBound.value };
-}
-function reviewCandidateCode(decision, history) {
-  const inventory = selectedInventory(decision, history);
-  if (inventory === null || inventory.payload.stage !== "initial" || inventory.payload.purpose !== "review")
-    return null;
-  return {
-    repository: inventory.payload.inputSnapshot.manifest.code.repository,
-    commit: inventory.payload.candidateGitSHA
-  };
 }
 
 // plugins/omp-build/engine/criterion-decision.ts
@@ -12690,8 +12761,9 @@ function retainExclusions(decision, inputs, records, bound, diagnostics) {
 function authenticatedCriterionFacts(decision, history, originalContributionId, catalogues, externalHistories = [], deliveryHistory = history) {
   const records = recordsOf(history);
   const diagnostics = [];
-  const inputs = reviewInputsFromInventory(decision, history);
-  const selected = inputs === null ? { declarations: [], evidence: [] } : selectedDeclarations([deliveryHistory, ...externalHistories], inputs, diagnostics, catalogues);
+  const histories = [deliveryHistory, ...externalHistories];
+  const inputs = reviewInputsFromInventory(decision, history, histories);
+  const selected = inputs === null ? { declarations: [], evidence: [] } : selectedDeclarations(histories, inputs, diagnostics, catalogues);
   const bound = new Set(decision.sourceContributionIds);
   if (originalContributionId !== null)
     bound.add(originalContributionId);
@@ -12733,16 +12805,21 @@ function assessStandalone(decision, inputs, code, diagnostics) {
   return { forceRequestChanges: false, diagnostics };
 }
 function criterionAssessmentForDecision(decision, inputs, facts, code, histories = []) {
-  const diagnostics = [
-    ...facts.diagnostics,
-    ...codeLinkReferenceDiagnostics(facts.verdicts, histories, manifestPins2(inputs))
-  ];
-  if (decision.purpose !== "review")
+  const diagnostics = [...facts.diagnostics];
+  if (decision.purpose !== "review") {
+    diagnostics.push(...codeLinkReferenceDiagnostics(facts.verdicts, histories, manifestPins2(inputs)));
     return { forceRequestChanges: false, diagnostics };
+  }
   if (inputs === null) {
     diagnostics.push(diagnostic2("malformed", "Review decision lacks an authenticated action-input binding"));
     return { forceRequestChanges: true, diagnostics };
   }
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories);
+  if (!authenticated.ok) {
+    diagnostics.push(...authenticated.diagnostics);
+    return { forceRequestChanges: true, diagnostics };
+  }
+  diagnostics.push(...codeLinkReferenceDiagnostics(facts.verdicts, histories, manifestPins2(authenticated.value)));
   if (inputs.manifest.spec.kind === "absent")
     return assessStandalone(decision, inputs, code, diagnostics);
   if (inputs.manifest.spec.kind !== "accepted") {
@@ -13628,7 +13705,7 @@ function groupFor(label) {
 }
 
 // plugins/omp-build/engine/review-context-lineage.ts
-function successorOf2(history, root, successor, negative) {
+function successorOf2(root, successor, negative) {
   if (!isInitialPullRequestReviewInventory(root.payload) || !isInitialPullRequestReviewInventory(successor.payload))
     return false;
   const old = root.payload.inputSnapshot;
@@ -13646,15 +13723,15 @@ function successorOf2(history, root, successor, negative) {
     ...old.stageSources
   ].map(canonicalValueDigest));
   const slots = (value) => value.slots.map(({ action: _action, ...slot }) => slot);
-  return root.recordId !== successor.recordId && successor.payload.rootAttemptId === successor.recordId && successor.payload.replacement === undefined && root.payload.candidateGitSHA === successor.payload.candidateGitSHA && same(root.payload.tier, successor.payload.tier) && same(root.payload.allocation, successor.payload.allocation) && same(root.payload.policy, successor.payload.policy) && same(slots(root.payload), slots(successor.payload)) && same(oldManifest, newManifest) && same(old.stageSources, fresh.stageSources) && validateActionInputs(fresh).ok && expandedGitPinsObserved([history], fresh) && old.fingerprint !== fresh.fingerprint && ref.length === 1 && additions.some((item) => same(item, ref[0])) && before.every((item) => after.some((candidate) => same(item, candidate))) && additions.some((item) => !same(item, ref[0]) && !priorSources.has(canonicalValueDigest(item)));
+  return root.recordId !== successor.recordId && successor.payload.rootAttemptId === successor.recordId && successor.payload.replacement === undefined && root.payload.candidateGitSHA === successor.payload.candidateGitSHA && same(root.payload.tier, successor.payload.tier) && same(root.payload.allocation, successor.payload.allocation) && same(root.payload.policy, successor.payload.policy) && same(slots(root.payload), slots(successor.payload)) && same(oldManifest, newManifest) && same(old.stageSources, fresh.stageSources) && old.fingerprint !== fresh.fingerprint && ref.length === 1 && additions.some((item) => same(item, ref[0])) && before.every((item) => after.some((candidate) => same(item, candidate))) && additions.some((item) => !same(item, ref[0]) && !priorSources.has(canonicalValueDigest(item)));
 }
-function directReviewContextSuccessors(history, roots, contributions, root, negative) {
-  const authenticated = roots.filter((candidate) => accounted(history, candidate));
+function directReviewContextSuccessors(history, roots, contributions, root, negative, histories = [history]) {
+  const authenticated = roots.filter((candidate) => isInitialPullRequestReviewInventory(candidate.payload) && accounted(history, candidate) && authenticateHistoricalActionInputs(candidate.payload.inputSnapshot, histories).ok);
   const edges = (from) => {
     const negatives = contributions.filter((entry) => negativeFor(history, from, entry));
-    return authenticated.filter((candidate) => negatives.some((entry) => successorOf2(history, from, candidate, entry)));
+    return authenticated.filter((candidate) => negatives.some((entry) => successorOf2(from, candidate, entry)));
   };
-  const candidates = authenticated.filter((candidate) => successorOf2(history, root, candidate, negative));
+  const candidates = authenticated.filter((candidate) => successorOf2(root, candidate, negative));
   const reaches = (from, target, seen) => {
     if (seen.has(from.recordId))
       return false;
@@ -13663,7 +13740,7 @@ function directReviewContextSuccessors(history, roots, contributions, root, nega
   };
   return candidates.filter((candidate) => !candidates.some((other) => other.recordId !== candidate.recordId && reaches(other, candidate, new Set([root.recordId]))));
 }
-function reviewContextLineage(history, records) {
+function reviewContextLineage(history, records, histories = [history]) {
   const roots = [...records.values()].filter((record) => record.kind === "review-attempt" && isInitialPullRequestReviewInventory(record.payload));
   const contributions = [...records.values()].filter((record) => record.kind === "contribution");
   const superseded = new Set;
@@ -13676,7 +13753,7 @@ function reviewContextLineage(history, records) {
       diagnostics.push(diagnostic2("duplicate-reference", `Review inventory ${root.recordId} has an ambiguous negative slot`));
       continue;
     }
-    const successors = negatives.flatMap((entry) => directReviewContextSuccessors(history, roots, contributions, root, entry));
+    const successors = negatives.flatMap((entry) => directReviewContextSuccessors(history, roots, contributions, root, entry, histories));
     const finals = [...records.values()].filter((record) => record.kind === "review" && record.payload.inventoryIds.includes(root.recordId));
     if (finals.length > 0)
       diagnostics.push(diagnostic2("incomplete", `Review inventory ${root.recordId} has a context-negative result and cannot produce a final review`));
@@ -13719,13 +13796,13 @@ function latestUnfinishedPullRequestRoot(records, superseded = new Set) {
       latest = record;
   return latest;
 }
-function analyzeReviewIdentity(history, records) {
+function analyzeReviewIdentity(history, records, histories = [history]) {
   const reviews = reviewOperations(history);
   const incompleteFinal = reviews.some((review) => review.status !== "complete" || review.record?.kind !== "review");
   const latestOperation = incompleteFinal || reviews.length === 0 ? null : reviews[reviews.length - 1];
   const latest = latestOperation?.record?.kind === "review" ? latestOperation.record : null;
   const transportDiagnostics = [...history.diagnostics, ...history.source.diagnostics];
-  const lineage = reviewContextLineage(history, records);
+  const lineage = reviewContextLineage(history, records, histories);
   if (!history.source.complete)
     transportDiagnostics.push(diagnostic2("incomplete", "Review history is incomplete"));
   return {
@@ -14026,7 +14103,7 @@ function contributionInputs(source, histories, context) {
   const history = histories.find((item) => equalScope(item.source.scope, scope));
   if (!history)
     return unavailable2();
-  const action = originalContributionAction(source, history);
+  const action = originalContributionAction(source, history, histories);
   if (!action.ok)
     return action;
   const inputs = action.value;
@@ -14046,7 +14123,12 @@ function resolveAdjudicationSources(input) {
   if (!source.ok)
     return source;
   if (source.value.kind === "decision")
-    return resolveCauseActionInputs({ decision: source.value, history, context: input.context });
+    return resolveCauseActionInputs({
+      decision: source.value,
+      history,
+      context: input.context,
+      histories: input.histories
+    });
   if (source.value.kind !== "contribution" || subject.kind === "cause")
     return unavailable2();
   if (subject.kind === "retained-finding") {
@@ -14164,7 +14246,15 @@ function resolveCauseActionInputs(input) {
       ok: false,
       diagnostics: [diagnostic2("cause-source-unconfirmed", "Synthesis inventory is not authenticated")]
     };
-  const inventory = inventoryResult.value;
+  const inputs = synthesisInputs(source, inventoryResult.value, input.context);
+  if (!inputs.ok)
+    return inputs;
+  const authenticated = authenticateHistoricalActionInputs(inputs.value, input.histories ?? [input.history]);
+  if (!authenticated.ok)
+    return authenticated;
+  return { ok: true, value: [authenticated.value] };
+}
+function synthesisInputs(source, inventory, context) {
   const slots = inventory.payload.slots.filter((slot) => slot.slotId === source.payload.host.slotId && slot.phase === source.payload.host.phase && slot.role === source.payload.host.role);
   const slot = slots[0];
   if (slots.length !== 1 || !slot?.action || inventory.payload.stage !== "synthesis" || !source.inputs.includes(inventory.recordId) || source.payload.host.origin !== "native" || source.payload.host.childId === null || source.payload.host.chunk !== slot.chunk || source.payload.native?.completion !== "completed" || source.payload.native.strict !== "valid")
@@ -14173,14 +14263,14 @@ function resolveCauseActionInputs(input) {
       diagnostics: [diagnostic2("cause-context-unbound", "Synthesis action slot is not bound to the contribution")]
     };
   const inputs = slot.action.inputs;
-  if (inventory.payload.actionInputDigest !== inputs.fingerprint || inputs.manifest.code.head !== inventory.payload.candidateGitSHA || source.payload.host.action && canonicalValueDigest(source.payload.host.action) !== canonicalValueDigest(slot.action) || !validateActionInputs(inputs).ok || inputs.manifest.spec.kind !== "accepted" || !sameOwnSpecRef(inputs.manifest.spec.effective.own, input.context.effective.own) || canonicalValueDigest(inputs.manifest.spec.effective) !== canonicalValueDigest(input.context.effective))
+  if (inventory.payload.actionInputDigest !== inputs.fingerprint || inputs.manifest.code.head !== inventory.payload.candidateGitSHA || source.payload.host.action && canonicalValueDigest(source.payload.host.action) !== canonicalValueDigest(slot.action) || inputs.manifest.spec.kind !== "accepted" || !sameOwnSpecRef(inputs.manifest.spec.effective.own, context.effective.own) || canonicalValueDigest(inputs.manifest.spec.effective) !== canonicalValueDigest(context.effective))
     return {
       ok: false,
       diagnostics: [
         diagnostic2("cause-context-unbound", "Authenticated synthesis action does not select the exact accepted Spec")
       ]
     };
-  return { ok: true, value: [inputs] };
+  return { ok: true, value: inputs };
 }
 
 // plugins/omp-build/engine/uw-child-admission.ts
@@ -15304,7 +15394,7 @@ function boundFailure(diagnostics) {
 function mismatchedStart() {
   return specChainFailure("incomplete", "Spec assessment start does not match its result", "unconfirmed");
 }
-function authenticateStart(confirmed, home, mandateRef) {
+function authenticateStart(confirmed, home, mandateRef, histories) {
   const startRef = confirmed.payload.start;
   if (!equalScope(startRef.scope, confirmed) || !equalScope(startRef.scope, mandateRef.scope))
     return mismatchedStart();
@@ -15324,10 +15414,9 @@ function authenticateStart(confirmed, home, mandateRef) {
     return mismatchedStart();
   if (canonicalValueDigest(startPayload.inputs) !== canonicalValueDigest(confirmed.payload.inputs))
     return mismatchedStart();
-  if (!validateActionInputs(confirmed.payload.inputs).ok)
-    return mismatchedStart();
-  if (!expandedGitPinsObserved([home], confirmed.payload.inputs))
-    return specChainFailure("incomplete", "Spec assessment cites unconfirmed expanded Git context", "unconfirmed");
+  const authenticated = authenticateHistoricalActionInputs(confirmed.payload.inputs, histories);
+  if (!authenticated.ok)
+    return boundFailure(authenticated.diagnostics);
   const operands = confirmed.payload.inputs.manifest.operands;
   if (operands?.action !== "assess-spec" || !sameAssessInputs(operands.exactInputs, confirmed.payload.exactInputs))
     return mismatchedStart();
@@ -15349,7 +15438,7 @@ function authenticatedRecord(assessed, histories, mandateRef) {
   const confirmed = bound.value;
   if (confirmed.payload.native.completion !== "completed" || confirmed.payload.native.strict !== "valid")
     return specChainFailure("incomplete", "Spec assessment is not a confirmed native result", "unconfirmed");
-  const start = authenticateStart(confirmed, home, mandateRef);
+  const start = authenticateStart(confirmed, home, mandateRef, histories);
   if (!start.ok)
     return start;
   return { ok: true, record: confirmed };
@@ -15447,6 +15536,8 @@ function creationContextProblem(outer, consent, input) {
   const assessment = assessmentHistory === null ? null : bindExternalRef(input.proposal.assessment, assessmentHistory);
   if (assessment === null || !assessment.ok || !isAssessResult(assessment.value))
     return "Composed assessment result is unavailable";
+  if (!authenticateHistoricalActionInputs(assessment.value.payload.inputs, input.histories).ok)
+    return "Composed assessment input context is not authenticated";
   const operands = assessment.value.payload.inputs.manifest.operands;
   if (operands?.action !== "assess-spec" || operands.origin.kind !== "cause-created-child")
     return "Composed assessment origin is not a created child";
@@ -15663,7 +15754,7 @@ function succeeds(history, old, candidate) {
     oldInputs = oldSlot.action.inputs;
     newInputs = newSlot.action.inputs;
   }
-  if (oldInputs.fingerprint === newInputs.fingerprint || !validateActionInputs(newInputs).ok || !expandedGitPinsObserved([history], newInputs))
+  if (oldInputs.fingerprint === newInputs.fingerprint || !authenticateHistoricalActionInputs(newInputs, [history]).ok)
     return false;
   if (canonicalValueDigest(old.payload.exactInputs) !== canonicalValueDigest(candidate.payload.exactInputs) || canonicalValueDigest(old.payload.mandate) !== canonicalValueDigest(candidate.payload.mandate))
     return false;
@@ -15743,6 +15834,8 @@ function authenticateWorkflowReceiptPair(history, result, options = { native: "v
   const boundResult = bindExternalRef({ scope: history.source.scope, kind: "action-receipt", recordId: result.recordId }, history);
   if (!boundStart.ok || !boundResult.ok || canonicalValueDigest(boundResult.value) !== canonicalValueDigest(result) || payload.start.kind !== "action-receipt" || payload.start.recordId !== start.recordId || !equalScope(payload.start.scope, history.source.scope) || citedOperationIntegrity(history, start.recordId) !== null || !validateActionInputs(payload.inputs).ok || canonicalValueDigest(start.payload.inputs) !== canonicalValueDigest(payload.inputs) || canonicalValueDigest(start.payload.exactInputs) !== canonicalValueDigest(payload.exactInputs) || canonicalValueDigest(start.payload.mandate) !== canonicalValueDigest(payload.mandate))
     return refusal();
+  if (options.native === "valid" && !workflowContextNegative(result) && !authenticatedReceiptActionInputs(payload, [history]))
+    return refusal();
   return { ok: true, value: { start, result } };
 }
 function paired(history, result, _receipts) {
@@ -15757,7 +15850,7 @@ function hasUnpairedStart(receipts) {
 function otherMandateNegativeUnpaired(history, actionReceipts, scoped) {
   return actionReceipts.some((record) => !scoped.includes(record) && workflowContextNegative(record) && !paired(history, record, actionReceipts));
 }
-function workflowContextTerminal(history, action, mandate, contextLeaf, excluded) {
+function workflowContextTerminal(history, action, mandate, excluded) {
   const actionReceipts = recordsOf(history).filter((record) => record.kind === "action-receipt" && record.payload.action === action && !excludedReceipt(record, excluded));
   const receipts = actionReceipts.filter((record) => canonicalValueDigest(record.payload.mandate) === canonicalValueDigest(mandate));
   if (otherMandateNegativeUnpaired(history, actionReceipts, receipts))
@@ -15765,11 +15858,6 @@ function workflowContextTerminal(history, action, mandate, contextLeaf, excluded
   const negatives = receipts.filter(workflowContextNegative);
   for (const item of negatives) {
     const resolution = resolveContextNegative(history, item, receipts, new Set);
-    if (resolution === "missing" && contextLeaf !== undefined) {
-      const chain = workflowContextChain(history, item, mandate, excluded);
-      if (chain.status === "missing" && chain.leaf.recordId === contextLeaf.recordId && canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf))
-        continue;
-    }
     if (resolution !== "clear")
       return resolution;
   }
@@ -15795,23 +15883,6 @@ function workflowContextDirectSuccessor(history, negative, mandate, excluded) {
   if (!workflowContextNegative(successor) && !validPositiveSuccessor(successor))
     return { status: "uncertain" };
   return { status: "successor", record: successor };
-}
-function workflowContextChain(history, negative, mandate, excluded) {
-  const negatives = [];
-  const seen = new Set;
-  let current = negative;
-  while (true) {
-    if (seen.has(current.recordId))
-      return { status: "uncertain", negatives, leaf: current };
-    seen.add(current.recordId);
-    negatives.push(current);
-    const direct = workflowContextDirectSuccessor(history, current, mandate, excluded);
-    if (direct.status !== "successor")
-      return { status: direct.status, negatives, leaf: current };
-    if (!workflowContextNegative(direct.record))
-      return { status: "clear", negatives, leaf: current };
-    current = direct.record;
-  }
 }
 function resolveContextNegative(history, negative, receipts, seen) {
   if (!workflowContextNegative(negative) || seen.has(negative.recordId) || !paired(history, negative, receipts))
@@ -16278,7 +16349,7 @@ function confirmedAssessResult(result, home, histories, mandateRef, attempts) {
   return authenticated.ok ? { ok: true } : authenticated;
 }
 function contextAssessment(home, mandateRef, excluded) {
-  const terminal = workflowContextTerminal(home, "assess-spec", mandateRef, undefined, excluded);
+  const terminal = workflowContextTerminal(home, "assess-spec", mandateRef, excluded);
   if (terminal === "clear")
     return { ok: true };
   if (terminal === "ambiguous")
@@ -16707,7 +16778,10 @@ function citedConstraintsProblem(compatibility, expected) {
 function citationsProblem(record, assessment, histories) {
   const compatibility = assessment.compatibility;
   const references = compatibility.state === "conflicting" ? compatibility.conflicts.flatMap((conflict) => conflict.references) : compatibility.references;
-  const manifest = record.payload.inputs.manifest;
+  const authenticated = authenticateHistoricalActionInputs(record.payload.inputs, histories);
+  if (!authenticated.ok)
+    return "Compatibility assessment inputs are not authenticated";
+  const { manifest, stageSources } = authenticated.value;
   const pins = [
     ...manifest.repositoryReferences,
     ...manifest.plugin.files,
@@ -16717,7 +16791,7 @@ function citationsProblem(record, assessment, histories) {
     ...manifest.acceptedSources,
     ...manifest.deliveryData,
     ...manifest.expandedContext,
-    ...record.payload.inputs.stageSources
+    ...stageSources
   ];
   for (const ref of references) {
     if (ref.source === "record" && !available.some((candidate) => candidate.source === "record" && candidate.selector === ref.selector && candidate.digest === ref.digest && canonicalValueDigest(candidate.record) === canonicalValueDigest(ref.record)))
@@ -18215,20 +18289,6 @@ function assessCause(input, cause) {
 }
 
 // plugins/omp-build/engine/cause-capture-authentication.ts
-function selected(value, selector) {
-  if (selector === "")
-    return value;
-  if (!selector.startsWith("/"))
-    return;
-  let result = value;
-  for (const part of selector.slice(1).split("/")) {
-    if (result === null || typeof result !== "object")
-      return;
-    const key = part.replaceAll("~1", "/").replaceAll("~0", "~");
-    result = result[key];
-  }
-  return result;
-}
 var refusal3 = (message) => ({
   ok: false,
   diagnostics: [diagnostic2("cause-source-unconfirmed", message)]
@@ -18253,6 +18313,9 @@ function decisionCauseCapture(decision, histories) {
   const inputs = inventory.value.payload.slots[index]?.action?.inputs;
   if (index < 0 || inputs === undefined)
     return refusal3("Decision producer slot has no action inputs");
+  const authenticated = authenticateHistoricalActionInputs(inputs, histories);
+  if (!authenticated.ok)
+    return authenticated;
   return {
     ok: true,
     value: {
@@ -18267,8 +18330,8 @@ function parseCapturedActionInputs(record, selector) {
   const canonicalSelector = record.kind === "review-attempt" && (/^\/payload\/slots\/(?:0|[1-9]\d*)\/action\/inputs$/.test(selector) || selector === "/payload/inputSnapshot") || record.kind === "action-receipt" && selector === "/payload/inputs";
   if (!canonicalSelector)
     return refusal3("Cause capture does not select a canonical action input");
-  const parsed = actionInputsSchema.safeParse(selected(record, selector));
-  if (!parsed.success || !validateActionInputs(parsed.data).ok)
+  const parsed = actionInputsSchema.safeParse(selectedRecordValue(record, selector));
+  if (!parsed.success)
     return refusal3("Cause capture is not valid action inputs");
   return { ok: true, value: parsed.data };
 }
@@ -18286,7 +18349,10 @@ function authenticateActionCapture(input) {
   const parsed = parseCapturedActionInputs(record.value, capture.selector);
   if (!parsed.ok)
     return parsed;
-  const action = parsed.value;
+  const authenticated = authenticateHistoricalActionInputs(parsed.value, histories);
+  if (!authenticated.ok)
+    return authenticated;
+  const action = authenticated.value;
   if (action.manifest.spec.kind !== "accepted" || canonicalValueDigest(action.manifest.spec.effective) !== canonicalValueDigest(input.context.effective))
     return refusal3("Cause capture does not bind the complete effective Spec");
   return { ok: true, value: action };
@@ -18298,7 +18364,7 @@ function authenticateDecisionCapture(input, source, action) {
   const history = histories.find((item) => equalScope(item.source.scope, source.decision));
   if (!history)
     return refusal3("Decision history is unavailable");
-  const producer = resolveCauseActionInputs({ decision: source.decision, history, context: input.context });
+  const producer = resolveCauseActionInputs({ decision: source.decision, history, context: input.context, histories });
   if (!producer.ok)
     return producer;
   if (!producer.value.some((item) => canonicalValueDigest(item) === canonicalValueDigest(action)))
@@ -18325,7 +18391,7 @@ function authenticateDecisionCapture(input, source, action) {
   return { ok: true, value: null };
 }
 function authenticateDeclaredProducer(input, contribution, history, action) {
-  const producer = originalContributionAction(contribution, history);
+  const producer = originalContributionAction(contribution, history, input.histories);
   if (!producer.ok)
     return producer;
   if (producer.value.manifest.spec.kind !== "accepted" || canonicalValueDigest(producer.value.manifest.spec.effective) !== canonicalValueDigest(input.context.effective))
@@ -18598,9 +18664,9 @@ function assess(input, historical, validatedPrefix, frame) {
     return bound;
   if (JSON.stringify(bound.value) !== JSON.stringify(decision))
     return { ok: false, diagnostics: [diagnostic2("unbound", "Decision differs from its authenticated record")] };
-  const bindings = decisionBindings(decision, history, input.catalogues, frame);
+  const bindings = decisionBindings(decision, history, input.catalogues, histories, frame);
   diagnostics.push(...bindings.diagnostics);
-  const resolvedInputs = resolveCauseActionInputs({ decision, history, context });
+  const resolvedInputs = resolveCauseActionInputs({ decision, history, context, histories });
   if (!resolvedInputs.ok)
     return resolvedInputs;
   const selectedInputs = resolvedInputs.value;
@@ -18638,11 +18704,11 @@ function assess(input, historical, validatedPrefix, frame) {
   appendUnassignedOutcomes({ decision, records, bindings, decisionRef, base, outcomes });
   return { ok: true, value: { outcomes, executableCauseIds, diagnostics } };
 }
-function decisionBindings(decision, history, catalogues, frame) {
+function decisionBindings(decision, history, catalogues, histories, frame) {
   const bindingKey = canonicalValueDigest([{ repository: decision.repository, target: decision.target }, decision]);
   let bindings = frame?.bindings.get(bindingKey);
   if (bindings === undefined) {
-    bindings = validateDecisionBindings(decision, history, frame?.catalogues ?? catalogues);
+    bindings = validateDecisionBindings(decision, history, frame?.catalogues ?? catalogues, histories);
     frame?.bindings.set(bindingKey, bindings);
   }
   return bindings;
@@ -19355,11 +19421,14 @@ function evaluatePin(pin, context) {
   return collectMatches(disposition, rejected.value, context);
 }
 function selectedRejectedFindingIds(input, historical) {
-  if (!validateActionInputs(input.action).ok || input.action.manifest.purpose !== "review" || input.action.manifest.spec.kind !== "accepted")
+  if (input.action.manifest.purpose !== "review" || input.action.manifest.spec.kind !== "accepted")
     return {
       ok: false,
       diagnostics: [diagnostic2("cause-context-unbound", "A fresh accepted-Spec review action is required")]
     };
+  const authenticated = authenticateHistoricalActionInputs(input.action, input.histories);
+  if (!authenticated.ok)
+    return authenticated;
   const selected = input.action.manifest.deliveryData.filter((item) => item.role === "cause-state");
   const pins = selected.filter((item) => item.record.kind === "cause-disposition" && item.selector === "/payload");
   const context = {
@@ -19979,7 +20048,7 @@ function integrationCodeMatchesProducer(producer, produced, remoteTip) {
 }
 function integrationVersionMatchesReview(inputs, subject, spec) {
   const integratedSubject = inputs.manifest.subject;
-  return validateActionInputs(inputs).ok && integratedSubject.kind === "uw" && canonicalValueDigest(integratedSubject) === canonicalValueDigest(subject) && inputs.manifest.spec.kind === "accepted" && canonicalValueDigest(inputs.manifest.spec) === canonicalValueDigest(spec);
+  return integratedSubject.kind === "uw" && canonicalValueDigest(integratedSubject) === canonicalValueDigest(subject) && inputs.manifest.spec.kind === "accepted" && canonicalValueDigest(inputs.manifest.spec) === canonicalValueDigest(spec);
 }
 function authenticateIntegrationStart(payload, pin, history) {
   const invalid = (message) => fail([diagnostic2("integration-start-unpaired", message)]);
@@ -20015,6 +20084,9 @@ function authenticateIntegrationPin(pin, expected, histories) {
   const output = integrationOutputSchema.safeParse(payload.structured);
   if (!output.success || pin.digest !== canonicalValueDigest(output.data.code))
     return invalid("integration-code-unbound", "Selected integration code digest does not match the receipt");
+  const authenticatedInputs = authenticateHistoricalActionInputs(payload.inputs, histories);
+  if (!authenticatedInputs.ok)
+    return authenticatedInputs;
   if (!integrationCodeMatchesProducer(payload.inputs.manifest.code, output.data.code, payload.admission?.remoteTip))
     return invalid("integration-code-mismatch", "Integration code range or action-specific reference commit does not match its producer");
   if (!integrationVersionMatchesReview(payload.inputs, subject, spec))
@@ -20028,7 +20100,10 @@ function authenticateIntegrationPin(pin, expected, histories) {
 }
 function authenticateReviewIntegrationPin(inputs, histories) {
   const invalid = (code, message) => fail([diagnostic2(code, message)]);
-  if (!validateActionInputs(inputs).ok || !hasIntegrationReviewPin(inputs))
+  const authenticatedInputs = authenticateHistoricalActionInputs(inputs, histories);
+  if (!authenticatedInputs.ok)
+    return authenticatedInputs;
+  if (!hasIntegrationReviewPin(inputs))
     return invalid("integration-pin-unbound", "Final range review must select exactly one integration code receipt");
   const subject = inputs.manifest.subject;
   const spec = inputs.manifest.spec;
@@ -20136,12 +20211,12 @@ function validateDecisionAtObservation(record, history, catalogues, acceptedPoli
     ]);
   if (record.payload.judgment.purpose !== "review")
     return fail([diagnostic2("cause-context-unbound", "Effective finding veto requires a review decision")]);
-  const inputs = reviewInputsFromInventory(record.payload.judgment, history);
+  const histories = [deliveryHistory, ...externalHistories];
+  const inputs = reviewInputsFromInventory(record.payload.judgment, history, histories);
   if (inputs === null)
     return fail([diagnostic2("cause-context-unbound", "Review has no authenticated input snapshot")]);
   const selected = inputs.manifest.deliveryData.filter((item) => item.role === "cause-state");
   let rejected = [];
-  const histories = [deliveryHistory, ...externalHistories];
   if (reviewNeedsIntegrationAuthentication(inputs)) {
     const integration = authenticateReviewIntegrationPin(inputs, histories);
     if (!integration.ok)
@@ -20173,7 +20248,7 @@ function validateHistoricalReviewDecision(record, history, catalogues, acceptedP
 }
 
 // plugins/omp-build/engine/review-decision.ts
-function validateDecisionBindingsFromGraph(record, history, catalogues, graph) {
+function validateDecisionBindingsFromGraph(record, history, catalogues, graph, histories) {
   const diagnostics = graph.ok ? [] : [...graph.diagnostics];
   const records = graph.ok ? new Map(graph.value.map((entry) => [entry.recordId, entry])) : recordMap(history);
   const observed = records.get(record.recordId);
@@ -20188,7 +20263,7 @@ function validateDecisionBindingsFromGraph(record, history, catalogues, graph) {
     const source = records.get(sourceId);
     if (source?.kind !== "contribution" || source.payload.findings === null)
       continue;
-    for (const [id, inspection] of inspectContributionFindings(source, history, catalogues))
+    for (const [id, inspection] of inspectContributionFindings(source, history, catalogues, histories))
       inspections.set(id, inspection);
   }
   const covered = validateFinalFindingReferences(record, originals, inspections, diagnostics);
@@ -20198,8 +20273,8 @@ function validateDecisionBindingsFromGraph(record, history, catalogues, graph) {
   validateCauseReferences(record, diagnostics);
   return { admissible: diagnostics.length === 0, diagnostics, records, originals, inspections };
 }
-function validateDecisionBindings(record, history, catalogues) {
-  return validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history));
+function validateDecisionBindings(record, history, catalogues, histories = [history]) {
+  return validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history), histories);
 }
 function validateRetainedUnusableLabels(record, bindings) {
   const diagnostics = [];
@@ -20253,16 +20328,17 @@ function decisionVerdict(groups, hasUnusable, diagnostics, findingsCount) {
   return findingsCount > 0 ? "Approve" : "Approve (clean)";
 }
 function assessDecision(record, history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history, rejected = new Set) {
-  const bindings = validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history));
+  const histories = [deliveryHistory, ...externalHistories];
+  const bindings = validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history), histories);
   const diagnostics = [...bindings.diagnostics];
   validateDecisionPolicy(record, bindings, acceptedPolicyRef, diagnostics);
   const inspected = inspectDecisionFindings(record, bindings, diagnostics, rejected);
   const hasUnusable = record.payload.judgment.findings.some((finding) => finding.state === "unusable") || inspected.findings.some(({ inspection }) => !inspection.usable);
   const findingVerdict = decisionVerdict(inspected.groups, hasUnusable, diagnostics, record.payload.judgment.findings.length);
   const review = record.payload.judgment.purpose === "review" ? record.payload.judgment : null;
-  const inputs = review === null ? null : reviewInputsFromInventory(review, history);
+  const inputs = review === null ? null : reviewInputsFromInventory(review, history, histories);
   const facts = review === null ? { declarations: [], evidence: [], verdicts: [], diagnostics: [] } : authenticatedCriterionFacts(review, history, record.payload.originalContributionId, catalogues, externalHistories, deliveryHistory);
-  const criterion = criterionAssessmentForDecision(record.payload.judgment, inputs, facts, review === null ? null : reviewCandidateCode(review, history), [deliveryHistory, ...externalHistories]);
+  const criterion = criterionAssessmentForDecision(record.payload.judgment, inputs, facts, inputs === null ? null : { repository: inputs.manifest.code.repository, commit: inputs.manifest.code.head }, histories);
   diagnostics.push(...criterion.diagnostics);
   const structural = criterion.diagnostics.some((item) => item.code === "malformed" || item.code === "spec-not-accepted" || item.code === "duplicate-reference" || item.code === "missing-history" || item.code === "incomplete" || item.code === "foreign" || item.code === "conflict" || item.code === "unconfirmed");
   const verdict = findingVerdict === null || structural ? null : criterion.forceRequestChanges ? "Request changes" : findingVerdict;
@@ -20328,10 +20404,10 @@ function resolveCorrectionRootBasis(history, fix) {
   const basis = operatorBasis(history, fix);
   return basis === null ? failure5() : { ok: true, value: basis };
 }
-function resolveCorrectionRequestBasis(history, fix, decision, catalogues) {
+function resolveCorrectionRequestBasis(history, fix, decision, catalogues, histories = [history]) {
   if (!accounted(history, fix) || !accounted(history, decision))
     return failure5();
-  const bindings = validateDecisionBindings(decision, history, catalogues);
+  const bindings = validateDecisionBindings(decision, history, catalogues, histories);
   if (!bindings.admissible)
     return { ok: false, diagnostics: bindings.diagnostics };
   const basis = resolveCorrectionRootBasis(history, fix);
@@ -20450,7 +20526,7 @@ function fixRecoveryDecisionCatalogueRefs(input) {
       return fail2("Decision source contribution is not unique");
     if (source.payload.findings === null)
       continue;
-    const action = originalContributionAction(source, input.history);
+    const action = originalContributionAction(source, input.history, input.histories);
     if (!action.ok)
       return action;
     const ref = reviewClassCatalogueRef(action.value);
@@ -20592,13 +20668,13 @@ function resolveAdoptionBasis(proposal, histories) {
     return decisionRecord;
   if (requestRecord.value.kind !== "fix-request" || decisionRecord.value.kind !== "decision")
     return fail3("request or decision kind does not match its reference");
-  const refs = fixRecoveryDecisionCatalogueRefs({ decision: decisionRecord.value, history: home });
+  const refs = fixRecoveryDecisionCatalogueRefs({ decision: decisionRecord.value, history: home, histories });
   if (!refs.ok)
     return refs;
   const catalogues = readFixRecoveryCatalogues({ observation: proposal.observation, required: refs.value });
   if (!catalogues.ok)
     return catalogues;
-  const requestBasis = resolveCorrectionRequestBasis(home, requestRecord.value, decisionRecord.value, catalogues.value);
+  const requestBasis = resolveCorrectionRequestBasis(home, requestRecord.value, decisionRecord.value, catalogues.value, histories);
   if (!requestBasis.ok)
     return requestBasis;
   const capture = decisionCauseCapture(decisionRecord.value, histories);
@@ -20606,14 +20682,14 @@ function resolveAdoptionBasis(proposal, histories) {
     return capture;
   return { ok: true, value: { decision: decisionRecord.value, catalogues: catalogues.value, capture: capture.value } };
 }
-function validateNativePreparation(proposal, decision, executableCauseIds) {
+function validateNativePreparation(proposal, decision, executableCauseIds, histories) {
   const observation = proposal.observation;
   const first = decision.payload.judgment.causes.find((cause) => executableCauseIds.includes(cause.id));
   if (first === undefined)
     return proposal.nativePreparation.kind === "no-native-action" ? { ok: true, value: true } : fail3("native preparation exists without an executable cause");
   if (proposal.nativePreparation.kind !== "prepared" || proposal.nativePreparation.causeId !== first.id)
     return fail3("native preparation does not target the first executable cause");
-  const valid = validateActionInputs(proposal.nativePreparation.inputs);
+  const valid = authenticateHistoricalActionInputs(proposal.nativePreparation.inputs, histories);
   if (!valid.ok)
     return valid;
   const manifest = valid.value.manifest;
@@ -20663,7 +20739,7 @@ function validateRecoveryAdoptionPlan(input) {
   });
   if (!plan.ok)
     return plan;
-  return validateNativePreparation(proposal, decisionRecord, plan.value.executableCauseIds);
+  return validateNativePreparation(proposal, decisionRecord, plan.value.executableCauseIds, histories);
 }
 
 // plugins/omp-build/engine/fix-recovery-cuts.ts
@@ -22882,6 +22958,7 @@ function reconstructScope(cut, histories) {
     comments: selected.value,
     diagnostics: []
   };
+  inheritObservedGitPins(actual.source, source);
   return decodeHistoricalSource(source);
 }
 function selectComments(cut, actual) {
@@ -24358,7 +24435,7 @@ function collectPins(value, add) {
   const fields = value;
   for (const [key, entry] of Object.entries(fields)) {
     if (key === "references")
-      collectRefs(entry, add);
+      collectRefs(entry, add, false);
     else if (key === "manifest")
       collectExpandedContext(entry, add);
     else if (key !== "raw")
@@ -24367,22 +24444,37 @@ function collectPins(value, add) {
 }
 function collectExpandedContext(value, add) {
   if (value !== null && typeof value === "object" && "expandedContext" in value)
-    collectRefs(value.expandedContext, add);
+    collectRefs(value.expandedContext, add, true);
 }
-function collectRefs(value, add) {
+function collectRefs(value, add, records) {
   if (!Array.isArray(value))
     return;
   for (const item of value) {
-    if (item === null || typeof item !== "object" || !("source" in item) || item.source !== "git-file")
+    if (item === null || typeof item !== "object" || !("source" in item))
       continue;
-    const parsed = pinnedFileRefSchema.safeParse(item);
+    if (item.source !== "git-file" && !(records && item.source === "record"))
+      continue;
+    const parsed = (item.source === "git-file" ? pinnedFileRefSchema : recordInputRefSchema).safeParse(item);
     if (parsed.success)
       add(parsed.data);
   }
 }
 function historicalPinGroups(history, additional) {
+  const recordScopes = new Map;
   const groups = new Map;
   const add = (pin) => {
+    if (pin.source === "record") {
+      const scope = pin.record.scope;
+      if (equalScope(scope, history.source.scope))
+        return;
+      const key = JSON.stringify([scope.repository, scope.target]);
+      const group = recordScopes.get(key);
+      if (group === undefined)
+        recordScopes.set(key, { scope, refs: [pin] });
+      else
+        group.refs.push(pin);
+      return;
+    }
     const key = gitPinCoordinates(pin);
     let group = groups.get(key);
     if (group === undefined) {
@@ -24391,21 +24483,37 @@ function historicalPinGroups(history, additional) {
     }
     group.set(pin.digest, pin);
   };
-  for (const operation of history.operations) {
-    if (operation.status === "complete" && operation.authority !== "foreign" && operation.record !== null)
-      collectPins(operation.record.payload, add);
+  if (additional?.includeHistory !== false) {
+    for (const operation of history.operations) {
+      if (operation.status === "complete" && operation.authority !== "foreign" && operation.record !== null)
+        collectPins(operation.record.payload, add);
+    }
   }
   if (additional?.candidate !== undefined)
     collectPins(additional.candidate.payload, add);
   for (const ref of additional?.references ?? [])
     if (ref.source === "git-file")
       add(ref);
-  return groups;
+  return { groups, recordScopes };
 }
 async function observeHistoricalPins(history, options, additional) {
-  const groups = historicalPinGroups(history, additional);
+  const { groups, recordScopes } = historicalPinGroups(history, additional);
+  await observeGitPinGroups(history, options, groups);
+  for (const { scope, refs } of recordScopes.values()) {
+    const source = await readGitHubHistory(scope, options).catch(() => null);
+    if (source === null || !source.complete)
+      continue;
+    const cited = decodeHistory(source);
+    for (const ref of refs) {
+      if (recordRefDiagnostics("Historical action manifest", ref, [cited]).length === 0)
+        noteObservedRecordPin(history.source, ref);
+    }
+  }
+  return history;
+}
+async function observeGitPinGroups(history, options, groups) {
   if (groups.size === 0)
-    return history;
+    return;
   const batch = [];
   const transport = gh(options);
   for (const group of groups.values()) {
@@ -24424,7 +24532,6 @@ async function observeHistoricalPins(history, options, additional) {
   }
   if (batch.length > 0)
     await Promise.all(batch);
-  return history;
 }
 async function readDecodedGitHubHistory(scope, options) {
   return observeHistoricalPins(decodeHistory(await readGitHubHistory(scope, options)), options);
@@ -24473,7 +24580,7 @@ async function freshHistory(record, options, expectedAuthor, stopAuthor) {
   if (!history.complete) {
     throw new GitHubHistoryReadError("GitHub publication history is incomplete", history.diagnostics);
   }
-  return observeHistoricalPins(decodeHistory(history), options, { candidate: record });
+  return decodeHistory(history);
 }
 async function postComment(record, body, options) {
   return gh(options)(options.cwd, [
@@ -27414,7 +27521,8 @@ function assessHistoricalDecision(decision, history, catalogues, acceptedPolicyR
 }
 function spentBeforeCurrentPullRequestAttempt(history, catalogues, acceptedPolicyRef, externalHistories = [], deliveryHistory = history) {
   const records = recordMap(history);
-  const root = latestUnfinishedPullRequestRoot(records, reviewContextLineage(history, records).superseded);
+  const lineage = reviewContextLineage(history, records, [deliveryHistory, ...externalHistories]);
+  const root = latestUnfinishedPullRequestRoot(records, lineage.superseded);
   if (root === null)
     return null;
   const rootIndex = history.operations.findIndex((operation) => operation.status === "complete" && operation.record?.recordId === root.recordId);
@@ -27633,7 +27741,7 @@ function validateAuthorityReviewSpend(reviews, records, history, catalogues, acc
   return { diagnostics: null, spent };
 }
 function summarizeAuthorityReviews(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) {
-  const identity = analyzeReviewIdentity(history, recordMap(history));
+  const identity = analyzeReviewIdentity(history, recordMap(history), [deliveryHistory, ...externalHistories]);
   const reviews = identity.reviews;
   const knownReviews = identity.knownReviews;
   const preservedSpent = spentInCompleteHistory(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory) ?? spentBeforeCurrentPullRequestAttempt(history, catalogues, acceptedPolicyRef, externalHistories, deliveryHistory);
@@ -27761,15 +27869,15 @@ function selectedReviewRecords(history, reviewId) {
   const decision = records.find((record) => record.recordId === review.payload.decisionId);
   return decision?.kind === "decision" && decision.payload.judgment.purpose === "review" ? { review, decision } : null;
 }
-function selectedInputs(uw, selected, history, kind) {
+function selectedInputs(uw, selected, history, kind, histories) {
   const judgment = selected.decision.payload.judgment;
   if (judgment.purpose !== "review")
     return deliveryFailure(uw, "delivery-review-incomplete", "Selected review decision is absent");
-  const inputs = reviewInputsFromInventory(judgment, history);
-  const root = reviewRootFromDecision(selected.decision, history);
+  const root = reviewRootFromDecision(selected.decision, history, histories);
   const inventory = root.ok ? root.value.payload : null;
-  if (inputs === null || inventory === null || inventory.stage !== "initial" || inventory.purpose !== "review" || inventory.subject.kind !== kind)
+  if (inventory === null || inventory.stage !== "initial" || inventory.purpose !== "review" || inventory.subject.kind !== kind)
     return deliveryFailure(uw, "delivery-review-input-unbound", "Final review lacks its authenticated subject and action inputs");
+  const inputs = inventory.inputSnapshot;
   const code = inputs.manifest.code;
   if (inventory.subject.kind === "epic-range" && inventory.subject.range !== `${code.base}..${code.head}`)
     return deliveryFailure(uw, "delivery-review-range-mismatch", "Final parent review does not identify the integrated range");
@@ -27821,7 +27929,7 @@ function readDeliveryReview(observation, uw, reviewScope, effective, kind, mode)
   const selected = selectedReviewRecords(history, summary.value.reviewId);
   if (selected === null)
     return deliveryFailure(uw, "delivery-review-incomplete", "Selected review decision is absent");
-  const inputs = selectedInputs(uw, selected, history, kind);
+  const inputs = selectedInputs(uw, selected, history, kind, observation.histories);
   if (!inputs.ok)
     return inputs;
   const problem = inputProblem(observation, uw, effective, summary.value, inputs.value);
@@ -28030,18 +28138,6 @@ function assessUwDeliveryProof(observation, uw, accepted, effective, children, i
 }
 
 // plugins/omp-build/engine/uw-delivery-projection.ts
-function selectedValue(record, selector) {
-  let value = record;
-  for (const raw of selector.split("/").slice(1)) {
-    if (value === null || typeof value !== "object")
-      return;
-    const key = raw.replaceAll("~1", "/").replaceAll("~0", "~");
-    if (!Object.hasOwn(value, key))
-      return;
-    value = Object.getOwnPropertyDescriptor(value, key)?.value;
-  }
-  return value;
-}
 function currentAccepted(observation, uw) {
   const history = historyFor(uw, observation.histories);
   if (history === null)
@@ -28051,6 +28147,14 @@ function currentAccepted(observation, uw) {
     return deliveryFailure(uw, mandate.reason, "No current authenticated delivery mandate");
   const accepted = resolveAcceptedSpec(mandate, observation.histories);
   return accepted.ok ? { ok: true, value: accepted.spec } : deliveryFailure(uw, accepted.reason, accepted.evidence.map((item) => item.message).join("; "));
+}
+function declarationRecord(observation, pin) {
+  const bound = authenticatedDeliveryRecord(observation, pin.record);
+  if (!bound.ok || recordRefDiagnostics("Delivery declaration", pin, observation.histories).length !== 0)
+    return null;
+  if (bound.value.kind === "action-receipt" && !authenticatedReceiptActionInputs(bound.value.payload, observation.histories))
+    return null;
+  return bound.value;
 }
 function declarationRows(observation, selected) {
   const rows = [];
@@ -28067,10 +28171,10 @@ function declarationRows(observation, selected) {
     const key = `${pin.record.scope.repository}\x00${pin.record.scope.target}\x00${pin.record.recordId}\x00${selector}`;
     if (seen.has(key))
       continue;
-    const bound = authenticatedDeliveryRecord(observation, pin.record);
-    if (!bound.ok)
+    const record = declarationRecord(observation, pin);
+    if (record === null)
       continue;
-    const raw = selectedValue(bound.value, selector);
+    const raw = selectedRecordValue(record, selector);
     const declaration = criterionDeclarationSchema.safeParse(raw);
     if (!declaration.success || !sameOwnSpecRef(declaration.data.target.spec, spec.effective.own))
       continue;
@@ -28093,7 +28197,7 @@ function contributionCandidates(record) {
     candidates.push(...reportCandidates(finding.data, `/payload/findings/${index}/data`));
   return candidates;
 }
-function verdictRows(selected) {
+function verdictRows(selected, observation) {
   const judgment = selected.decision.payload.judgment;
   if (judgment.purpose !== "review")
     return [];
@@ -28103,6 +28207,9 @@ function verdictRows(selected) {
   for (const ref of judgment.criterionVerdicts) {
     const contribution = records.get(ref.contributionId);
     if (contribution?.kind !== "contribution")
+      continue;
+    const inputs = contribution.payload.host.action?.inputs;
+    if (inputs !== undefined && !authenticateHistoricalActionInputs(inputs, observation.histories).ok)
       continue;
     for (const candidate of contributionCandidates(contribution)) {
       const value = criterionVerdictSchema.safeParse(candidate.value);
@@ -28153,7 +28260,7 @@ function projectUwDelivery(observation, assessment, uw) {
       uw,
       effective,
       declarations: declarationRows(observation, selected.value),
-      verdicts: verdictRows(selected.value),
+      verdicts: verdictRows(selected.value, observation),
       diagnostics
     }
   };
@@ -30400,7 +30507,7 @@ function supersededContext(record, input, excluded, requiredAssessment) {
   if (requiredAssessment !== undefined || !workflowContextNegative(record))
     return false;
   const home = input.histories.find((history) => history.source.scope.repository === record.repository && history.source.scope.target === record.target);
-  return home !== undefined && workflowContextTerminal(home, "assess-spec", record.payload.mandate, undefined, excluded) === "clear";
+  return home !== undefined && workflowContextTerminal(home, "assess-spec", record.payload.mandate, excluded) === "clear";
 }
 function selectMaterialAcceptance(input, requiredAssessment) {
   if (!identifierSchema.safeParse(input.operationId).success)
@@ -30516,10 +30623,10 @@ function buildMaterialAcceptanceControl(prepared, confirmation, context) {
   });
 }
 // plugins/omp-build/engine/workflow-plan-review-selection.ts
-function reviewContextProblem(history, mandate, empty, excluded, contextLeaf) {
+function reviewContextProblem(history, mandate, empty, excluded) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
   for (const action of ["plan", "plan-review"]) {
-    const terminal = workflowContextTerminal(history, action, mandateRef, contextLeaf, excluded);
+    const terminal = workflowContextTerminal(history, action, mandateRef, excluded);
     if (terminal === "missing")
       return empty("blocked", [diagnostic2("action-context-missing", `${action} requires expanded context`)]);
     if (terminal === "uncertain")
@@ -30529,7 +30636,7 @@ function reviewContextProblem(history, mandate, empty, excluded, contextLeaf) {
   }
   return null;
 }
-function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
+function prepareReview(evidence, mandate, own, accepted, empty) {
   const history = evidence.issue;
   const gate = interruptionGate(ownAttempts(classifyAttempts({
     histories: [history, ...evidence.causal.histories],
@@ -30539,14 +30646,14 @@ function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
   if (gate.kind === "stop")
     return { macro: empty(gate.completion.status === "uncertain" ? "uncertain" : "blocked", gate.completion.evidence) };
   const excluded = gate.excluded;
-  const problem = reviewContextProblem(history, mandate, empty, excluded, contextLeaf);
+  const problem = reviewContextProblem(history, mandate, empty, excluded);
   if (problem !== null)
     return { macro: problem };
   if (unsettledStart(history, "plan", mandate, planResults(history, excluded), excluded))
     return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan start has no result")]) };
   if (unsettledStart(history, "plan-review", mandate, planReviews(history, excluded), excluded))
     return { macro: empty("uncertain", [diagnostic2("action-uncertain", "plan review start has no result")]) };
-  const results = planResults(history, excluded).filter((record) => planMatchesMandate(record, mandate, own, accepted, evidence.causal.histories) && !(producerOutputValid("plan", record.payload.structured) && missingContextOf(record.payload.structured) !== null));
+  const results = planResults(history, excluded).filter((record) => planMatchesMandate(record, mandate, own, accepted, [history, ...evidence.causal.histories]) && !(producerOutputValid("plan", record.payload.structured) && missingContextOf(record.payload.structured) !== null));
   const drafts = uniqueAccounted(results.filter((record) => record.payload.exactInputs.amendsReviewActionId === null), "current plan draft");
   if (!drafts.ok)
     return { macro: empty("blocked", drafts.diagnostics) };
@@ -30560,7 +30667,7 @@ function prepareReview(evidence, mandate, own, accepted, empty, contextLeaf) {
   const coverage = assessPlanCoverage({ spec: accepted, plan: parsedPlan.data });
   if (!coverage.ok)
     return { macro: empty("blocked", coverage.diagnostics) };
-  const review = matchingReview(history, mandate, latest, planDigest(parsedPlan.data), excluded);
+  const review = matchingReview(history, mandate, latest, planDigest(parsedPlan.data), excluded, evidence.causal.histories);
   if (!review.ok)
     return { macro: empty("blocked", review.diagnostics) };
   if (review.value === null) {
@@ -30593,14 +30700,14 @@ function unsettledStart(history, action, mandate, valid, excluded) {
 function planMatchesMandate(record, mandate, own, effective, histories) {
   const mandateRef = { scope: mandateScope(mandate), recordId: mandate.recordId, kind: "mandate" };
   const manifest = record.payload.inputs.manifest;
-  return sameRef2(record.payload.mandate, mandateRef) && record.payload.exactInputs.specDigest === effective.own.version && manifest.spec.kind === "accepted" && canonicalValueDigest(manifest.spec.effective) === canonicalValueDigest(effective) && capturedAssessmentSourcesMatch({ childOwnSources: [], sourceRefs: own.sourceRefs }, manifest.acceptedSources, histories);
+  return sameRef2(record.payload.mandate, mandateRef) && record.payload.exactInputs.specDigest === effective.own.version && authenticateHistoricalActionInputs(record.payload.inputs, histories).ok && manifest.spec.kind === "accepted" && canonicalValueDigest(manifest.spec.effective) === canonicalValueDigest(effective) && capturedAssessmentSourcesMatch({ childOwnSources: [], sourceRefs: own.sourceRefs }, manifest.acceptedSources, histories);
 }
-function matchingReview(history, mandate, latest, digest, excluded) {
-  return uniqueAccounted(planReviews(history, excluded).filter((record) => !record.payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null) && record.payload.exactInputs.planDigest === digest && record.payload.exactInputs.mandateId === mandate.recordId && record.payload.exactInputs.draftActionId === latest.payload.actionId), "plan review");
+function matchingReview(history, mandate, latest, digest, excluded, histories) {
+  return uniqueAccounted(planReviews(history, excluded).filter((record) => !record.payload.contributions.some((contribution) => producerOutputValid("plan-review", contribution.structured) && missingContextOf(contribution.structured) !== null) && authenticatedReceiptActionInputs(record.payload, [history, ...histories]) && record.payload.exactInputs.planDigest === digest && record.payload.exactInputs.mandateId === mandate.recordId && record.payload.exactInputs.draftActionId === latest.payload.actionId), "plan review");
 }
 
 // plugins/omp-build/engine/workflow-plan-macro.ts
-function planMacro(evidence, mandate, options) {
+function planMacro(evidence, mandate) {
   const empty = emptyMacro(mandate, null);
   if (mandate === null)
     return empty("blocked", [diagnostic2("mandate-absent", "plan macro has no mandate")]);
@@ -30616,7 +30723,7 @@ function planMacro(evidence, mandate, options) {
   if (!effective.ok)
     return empty("blocked", toDiagnostics(effective.diagnostics));
   const acceptedEmpty = emptyMacro(mandate, effective.value.own.version);
-  const reviewContext = prepareReview(evidence, mandate, accepted.spec, effective.value, acceptedEmpty, options?.contextLeaf);
+  const reviewContext = prepareReview(evidence, mandate, accepted.spec, effective.value, acceptedEmpty);
   if ("macro" in reviewContext)
     return reviewContext.macro;
   return evaluateReview(reviewContext, acceptedEmpty);

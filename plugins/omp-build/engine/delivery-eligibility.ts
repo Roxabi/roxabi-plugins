@@ -1,5 +1,6 @@
 import { canonicalValueDigest } from './action-input.ts'
 import { nativeResultValid } from './delivery-observation-authentication.ts'
+import { authenticatedReceiptActionInputs, authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -55,13 +56,19 @@ export function integrationStartPaired(history: DecodedHistory, result: Receipt)
   )
 }
 
-function currentPlanCandidate(record: CanonicalRecord, specDigest: string, mandate: ExternalRecordRef) {
+function currentPlanCandidate(
+  record: CanonicalRecord,
+  specDigest: string,
+  mandate: ExternalRecordRef,
+  histories: readonly DecodedHistory[],
+) {
   if (record.kind !== 'action-receipt' || !planReceiptEligible(record)) return []
   if (record.payload.action !== 'plan' || record.payload.phase !== 'result') return []
   if (!sameRef(record.payload.mandate, mandate)) return []
   if (!('amendsReviewActionId' in record.payload.exactInputs) || !('specDigest' in record.payload.exactInputs))
     return []
   if (record.payload.exactInputs.specDigest !== specDigest) return []
+  if (!authenticateHistoricalActionInputs(record.payload.inputs, histories).ok) return []
   return [{ record, exact: record.payload.exactInputs }]
 }
 
@@ -71,7 +78,7 @@ export function currentPlanReceipt(
   mandate: ExternalRecordRef,
 ): Result<Receipt | null> {
   const plans = histories.flatMap((history) =>
-    recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate)),
+    recordsOf(history).flatMap((record) => currentPlanCandidate(record, specDigest, mandate, histories)),
   )
   const drafts = uniqueAccounted(
     plans.filter((row) => row.exact.amendsReviewActionId === null),
@@ -95,7 +102,8 @@ export function currentPlanReceipt(
           if (!('draftActionId' in review.payload.exactInputs)) return false
           return (
             review.payload.actionId === row.exact.amendsReviewActionId &&
-            review.payload.exactInputs.draftActionId === draft.record.payload.actionId
+            review.payload.exactInputs.draftActionId === draft.record.payload.actionId &&
+            authenticatedReceiptActionInputs(review.payload, histories)
           )
         }),
       ),
@@ -105,7 +113,11 @@ export function currentPlanReceipt(
   return { ok: true, value: selected.value?.record ?? draft.record }
 }
 
-export function implementationStartPaired(history: DecodedHistory, result: Receipt): boolean {
+export function implementationStartPaired(
+  history: DecodedHistory,
+  result: Receipt,
+  histories: readonly DecodedHistory[] = [history],
+): boolean {
   if (result.payload.action !== 'implement' || result.payload.phase !== 'result') return false
   if (!('mandateId' in result.payload.exactInputs) || !('planActionId' in result.payload.exactInputs)) return false
   const resultExact = result.payload.exactInputs
@@ -116,7 +128,8 @@ export function implementationStartPaired(history: DecodedHistory, result: Recei
     return (
       record.payload.actionId === result.payload.actionId &&
       record.payload.exactInputs.mandateId === resultExact.mandateId &&
-      record.payload.exactInputs.planActionId === resultExact.planActionId
+      record.payload.exactInputs.planActionId === resultExact.planActionId &&
+      authenticateHistoricalActionInputs(record.payload.inputs, histories).ok
     )
   })
 }

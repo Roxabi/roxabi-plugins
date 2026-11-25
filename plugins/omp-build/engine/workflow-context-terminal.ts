@@ -1,5 +1,6 @@
 import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
 import { citedOperationIntegrity, nativeResultValid } from './delivery-eligibility.ts'
+import { authenticatedReceiptActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope } from './record-diagnostics.ts'
 import type { Result } from './result.ts'
@@ -78,6 +79,12 @@ export function authenticateWorkflowReceiptPair(
     canonicalValueDigest(start.payload.mandate) !== canonicalValueDigest(payload.mandate)
   )
     return refusal()
+  if (
+    options.native === 'valid' &&
+    !workflowContextNegative(result) &&
+    !authenticatedReceiptActionInputs(payload, [history])
+  )
+    return refusal()
   return { ok: true, value: { start, result } }
 }
 
@@ -127,7 +134,6 @@ export function workflowContextTerminal(
   history: DecodedHistory,
   action: string,
   mandate: ReceiptRecord['payload']['mandate'],
-  contextLeaf?: ReceiptRecord,
   excluded?: ReadonlySet<string>,
 ): 'clear' | 'missing' | 'uncertain' | 'ambiguous' {
   const actionReceipts = recordsOf(history).filter(
@@ -141,15 +147,6 @@ export function workflowContextTerminal(
   const negatives = receipts.filter(workflowContextNegative)
   for (const item of negatives) {
     const resolution = resolveContextNegative(history, item, receipts, new Set())
-    if (resolution === 'missing' && contextLeaf !== undefined) {
-      const chain = workflowContextChain(history, item, mandate, excluded)
-      if (
-        chain.status === 'missing' &&
-        chain.leaf.recordId === contextLeaf.recordId &&
-        canonicalValueDigest(chain.leaf) === canonicalValueDigest(contextLeaf)
-      )
-        continue
-    }
     if (resolution !== 'clear') return resolution
   }
   return 'clear'
@@ -183,27 +180,6 @@ export function workflowContextDirectSuccessor(
   if (!paired(history, successor, receipts)) return { status: 'uncertain' }
   if (!workflowContextNegative(successor) && !validPositiveSuccessor(successor)) return { status: 'uncertain' }
   return { status: 'successor', record: successor }
-}
-
-/** Trace the authenticated negative chain without projecting or modifying history. */
-export function workflowContextChain(
-  history: DecodedHistory,
-  negative: ReceiptRecord,
-  mandate: ReceiptRecord['payload']['mandate'],
-  excluded?: ReadonlySet<string>,
-): { status: ContextResolution; negatives: ReceiptRecord[]; leaf: ReceiptRecord } {
-  const negatives: ReceiptRecord[] = []
-  const seen = new Set<string>()
-  let current = negative
-  while (true) {
-    if (seen.has(current.recordId)) return { status: 'uncertain', negatives, leaf: current }
-    seen.add(current.recordId)
-    negatives.push(current)
-    const direct = workflowContextDirectSuccessor(history, current, mandate, excluded)
-    if (direct.status !== 'successor') return { status: direct.status, negatives, leaf: current }
-    if (!workflowContextNegative(direct.record)) return { status: 'clear', negatives, leaf: current }
-    current = direct.record
-  }
 }
 
 function resolveContextNegative(

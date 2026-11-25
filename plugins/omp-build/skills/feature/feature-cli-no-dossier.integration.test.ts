@@ -222,6 +222,6 @@ it.each(['approval', 'correction'] as const)('composes delivery after %s without
   const final = readSim(f.box)
   expect(final.issues['42']).toMatchObject({ state: 'CLOSED', stateReason: 'COMPLETED', comments: issueComments })
   expect(final.prs[pr]?.comments.map(({ body }) => body)).toEqual([...(bindingComments ?? []), ...posted])
-  expect(existsSync(join(f.cwd, 'artifacts', 'local', 'omp-build', 'actions'))).toBe(false)
+  expect(existsSync(join(f.box.root, 'session-artifacts', 'local', 'omp-build', 'actions'))).toBe(false)
   expect(existsSync(join(gitDir, 'omp-build', 'actions'))).toBe(false)
 })

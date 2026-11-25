@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { actionInputDigest, canonicalValueDigest } from '../engine/action-input.ts'
+import type { PinnedFileRef } from '../engine/action-input-refs.ts'
 import { assessCauseDispositions } from '../engine/cause-disposition.ts'
 import { buildRecord, parseRecord } from '../engine/record-construction.ts'
 import { createReviewClassCatalogues } from '../engine/review-class-catalogue.ts'
@@ -20,6 +21,7 @@ export function multiSisterFixture(
   count: 1 | 2 = 2,
   disposition: 'sister-blocking' | 'report' = 'sister-blocking',
   composedParent = false,
+  repositoryReferences: readonly PinnedFileRef[] = [],
 ) {
   const {
     fixtures,
@@ -73,7 +75,7 @@ export function multiSisterFixture(
   const catalogues = createReviewClassCatalogues([{ ref: catalogueRef, contents: { ok: true, value: catalogueBytes } }])
   const manifest = {
     ...base.inputs.manifest,
-    repositoryReferences: [evidence],
+    repositoryReferences: [evidence, ...repositoryReferences],
     plugin: { ...plugin, files: [...plugin.files.filter((file) => file.path !== catalogueRef.path), catalogueRef] },
   }
   const inputs = { ...base.inputs, manifest, fingerprint: actionInputDigest(manifest) }

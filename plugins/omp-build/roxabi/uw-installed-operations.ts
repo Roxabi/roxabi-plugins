@@ -5,6 +5,7 @@ import {
   createGhIssueWritePorts,
   createIssueWriter,
   githubScope,
+  observeHistoricalPins,
   prepareSpecAllocation,
   readLandingFacts,
   readUwCompletionObservation,
@@ -91,13 +92,21 @@ export async function createInstalledUwOperations(input: InstalledUwOperationsOp
       operator: input.operator,
       writer,
       github,
-      readObservation: (uw, seeds) =>
-        readUwCompletionObservation(
+      readObservation: async (uw, seeds, references) => {
+        const observation = await readUwCompletionObservation(
           uw,
           github,
           (histories) => loadReviewClassCatalogues({ histories, cwd: input.cwd, gh }),
           seeds,
-        ),
+        )
+        if (observation.status === 'complete' && references?.some((ref) => ref.source === 'git-file')) {
+          const home = observation.histories.find(
+            (entry) => entry.source.scope.repository === uw.repository && entry.source.scope.target === uw.target,
+          )
+          if (home !== undefined) await observeHistoricalPins(home, github, { references, includeHistory: false })
+        }
+        return observation
+      },
     }),
     listReports: (uw) => listInstalledReports(uw, github),
     guardParent,

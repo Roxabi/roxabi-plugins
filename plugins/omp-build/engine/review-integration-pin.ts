@@ -1,6 +1,7 @@
-import { canonicalValueDigest, validateActionInputs } from './action-input.ts'
+import { canonicalValueDigest } from './action-input.ts'
 import type { ActionInputs, ActionSpecInput, ActionSubject, RecordInputRef } from './action-input-schema.ts'
 import { integrationReceiptEligible } from './delivery-observation-authentication.ts'
+import { authenticateHistoricalActionInputs } from './historical-action-inputs.ts'
 import type { DecodedHistory } from './history-schema.ts'
 import { diagnostic, equalScope, fail, sameRef } from './record-diagnostics.ts'
 import type { ExternalRecordRef } from './record-references.ts'
@@ -29,7 +30,6 @@ function integrationCodeMatchesProducer(
 function integrationVersionMatchesReview(inputs: ActionInputs, subject: ActionSubject, spec: ActionSpecInput): boolean {
   const integratedSubject = inputs.manifest.subject
   return (
-    validateActionInputs(inputs).ok &&
     integratedSubject.kind === 'uw' &&
     canonicalValueDigest(integratedSubject) === canonicalValueDigest(subject) &&
     inputs.manifest.spec.kind === 'accepted' &&
@@ -101,6 +101,8 @@ export function authenticateIntegrationPin(
   const output = integrationOutputSchema.safeParse(payload.structured)
   if (!output.success || pin.digest !== canonicalValueDigest(output.data.code))
     return invalid('integration-code-unbound', 'Selected integration code digest does not match the receipt')
+  const authenticatedInputs = authenticateHistoricalActionInputs(payload.inputs, histories)
+  if (!authenticatedInputs.ok) return authenticatedInputs
   if (!integrationCodeMatchesProducer(payload.inputs.manifest.code, output.data.code, payload.admission?.remoteTip))
     return invalid(
       'integration-code-mismatch',
@@ -124,7 +126,9 @@ export function authenticateReviewIntegrationPin(
   histories: readonly DecodedHistory[],
 ): Result<{ source: ExternalRecordRef; output: IntegrationOutput }> {
   const invalid = (code: string, message: string): Result<never> => fail([diagnostic(code, message)])
-  if (!validateActionInputs(inputs).ok || !hasIntegrationReviewPin(inputs))
+  const authenticatedInputs = authenticateHistoricalActionInputs(inputs, histories)
+  if (!authenticatedInputs.ok) return authenticatedInputs
+  if (!hasIntegrationReviewPin(inputs))
     return invalid('integration-pin-unbound', 'Final range review must select exactly one integration code receipt')
   const subject = inputs.manifest.subject
   const spec = inputs.manifest.spec

@@ -8,6 +8,7 @@ import {
   readWorkflowBinding,
 } from '../dist/contracts.js'
 import { inheritObservedGitPins } from '../engine/historical-git-pins.ts'
+import { inheritObservedRecordPins } from '../engine/historical-record-pins.ts'
 import type { DecodedHistory } from '../engine/history-schema.ts'
 import { causalRefusal } from './causal-refusal.ts'
 import { explicitParentHistories } from './feature-context.ts'
@@ -37,6 +38,7 @@ export function asHistory(value: unknown): DecodedHistory | null {
   const parsed = decodedHistorySchema.safeParse(value)
   if (!parsed.success) return null
   inheritObservedGitPins((value as DecodedHistory).source, parsed.data.source)
+  inheritObservedRecordPins((value as DecodedHistory).source, parsed.data.source)
   return parsed.data
 }
 

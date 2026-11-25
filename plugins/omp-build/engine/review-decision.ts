@@ -10,7 +10,7 @@ import type { ReviewClassCatalogues } from './review-class-catalogue.ts'
 import { collectOriginals } from './review-decision-sources.ts'
 import { groupFor } from './review-groups.ts'
 import { analyzeReviewIdentity } from './review-identity.ts'
-import { reviewCandidateCode, reviewInputsFromInventory } from './review-inventory-input.ts'
+import { reviewInputsFromInventory, reviewRootFromDecision } from './review-inventory-input.ts'
 import { inspectContributionFindings } from './review-original-action.ts'
 import { validateCauseReferences, validateFinalFindingReferences } from './review-partition.ts'
 import { readReviewRecovery } from './review-recovery.ts'
@@ -28,6 +28,7 @@ function validateDecisionBindingsFromGraph(
   history: DecodedHistory,
   catalogues: ReviewClassCatalogues,
   graph: Result<CanonicalRecord[]>,
+  histories: readonly DecodedHistory[],
 ): DecisionBindings {
   const diagnostics: Diagnostic[] = graph.ok ? [] : [...graph.diagnostics]
   const records = graph.ok ? new Map(graph.value.map((entry) => [entry.recordId, entry])) : recordMap(history)
@@ -42,7 +43,7 @@ function validateDecisionBindingsFromGraph(
   for (const sourceId of decision.sourceContributionIds) {
     const source = records.get(sourceId)
     if (source?.kind !== 'contribution' || source.payload.findings === null) continue
-    for (const [id, inspection] of inspectContributionFindings(source, history, catalogues))
+    for (const [id, inspection] of inspectContributionFindings(source, history, catalogues, histories))
       inspections.set(id, inspection)
   }
   const covered = validateFinalFindingReferences(record, originals, inspections, diagnostics)
@@ -59,8 +60,9 @@ export function validateDecisionBindings(
   record: Extract<CanonicalRecord, { kind: 'decision' }>,
   history: DecodedHistory,
   catalogues: ReviewClassCatalogues,
+  histories: readonly DecodedHistory[] = [history],
 ): DecisionBindings {
-  return validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history))
+  return validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history), histories)
 }
 
 export function validateRetainedUnusableLabels(
@@ -92,6 +94,7 @@ export function validateReviewDecisionBindings(
   review: Extract<CanonicalRecord, { kind: 'review' }>,
   history: DecodedHistory,
   catalogues: ReviewClassCatalogues,
+  histories: readonly DecodedHistory[] = [history],
 ): Result<ReviewDecisionBindings> {
   const recovery = readReviewRecovery(history)
   if (!recovery.ok) return fail(recovery.diagnostics)
@@ -102,14 +105,15 @@ export function validateReviewDecisionBindings(
   const authorityHistory = classifyHistory(history).authorityHistory
   const admissionGraph = validateRecordGraph(authorityHistory)
   if (!admissionGraph.ok) return fail(admissionGraph.diagnostics)
-  const candidateDecision = recordMap(authorityHistory).get(review.payload.decisionId)
-  if (candidateDecision?.kind !== 'decision')
+  const decision = admissionGraph.value.find((record) => record.recordId === review.payload.decisionId)
+  if (decision?.kind !== 'decision')
     return fail([diagnostic('unknown-reference', `Review ${review.recordId} lacks its decision`)])
-  const bindings = validateDecisionBindingsFromGraph(candidateDecision, authorityHistory, catalogues, admissionGraph)
+  const bindings = validateDecisionBindingsFromGraph(decision, authorityHistory, catalogues, admissionGraph, histories)
   if (!bindings.admissible) return fail(bindings.diagnostics)
-  const identity = analyzeReviewIdentity(authorityHistory, bindings.records)
+  const identity = analyzeReviewIdentity(authorityHistory, bindings.records, histories)
   if (identity.transportDiagnostics.length > 0) return fail(identity.transportDiagnostics)
   if (identity.incompleteFinal) return fail([diagnostic('incomplete', 'A final review operation is not complete')])
+  if (identity.lineageDiagnostics.length > 0) return fail(identity.lineageDiagnostics)
   if (identity.pendingRoot !== null)
     return fail([
       diagnostic(
@@ -123,9 +127,8 @@ export function validateReviewDecisionBindings(
   const observedReview = bindings.records.get(review.recordId)
   if (observedReview?.kind !== 'review' || JSON.stringify(observedReview) !== JSON.stringify(review))
     return fail([diagnostic('unbound', `Review ${review.recordId} is not the observed immutable review record`)])
-  const decision = bindings.records.get(review.payload.decisionId)
-  if (decision?.kind !== 'decision')
-    return fail([diagnostic('unknown-reference', `Review ${review.recordId} lacks its decision`)])
+  const root = reviewRootFromDecision(decision, authorityHistory, histories)
+  if (!root.ok) return root
   const retainedLabels = validateRetainedUnusableLabels(decision, bindings)
   if (!retainedLabels.ok) return retainedLabels
   return { ok: true, value: { review: observedReview, decision, bindings } }
@@ -195,7 +198,14 @@ export function assessDecision(
   deliveryHistory: DecodedHistory = history,
   rejected: ReadonlySet<string> = new Set(),
 ): DecisionAssessment {
-  const bindings = validateDecisionBindingsFromGraph(record, history, catalogues, validateRecordGraph(history))
+  const histories = [deliveryHistory, ...externalHistories]
+  const bindings = validateDecisionBindingsFromGraph(
+    record,
+    history,
+    catalogues,
+    validateRecordGraph(history),
+    histories,
+  )
   const diagnostics = [...bindings.diagnostics]
   validateDecisionPolicy(record, bindings, acceptedPolicyRef, diagnostics)
   const inspected = inspectDecisionFindings(record, bindings, diagnostics, rejected)
@@ -209,7 +219,7 @@ export function assessDecision(
     record.payload.judgment.findings.length,
   )
   const review = record.payload.judgment.purpose === 'review' ? record.payload.judgment : null
-  const inputs = review === null ? null : reviewInputsFromInventory(review, history)
+  const inputs = review === null ? null : reviewInputsFromInventory(review, history, histories)
   const facts =
     review === null
       ? { declarations: [], evidence: [], verdicts: [], diagnostics: [] }
@@ -225,8 +235,8 @@ export function assessDecision(
     record.payload.judgment,
     inputs,
     facts,
-    review === null ? null : reviewCandidateCode(review, history),
-    [deliveryHistory, ...externalHistories],
+    inputs === null ? null : { repository: inputs.manifest.code.repository, commit: inputs.manifest.code.head },
+    histories,
   )
   diagnostics.push(...criterion.diagnostics)
   const structural = criterion.diagnostics.some(

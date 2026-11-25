@@ -1,7 +1,6 @@
 import type { DecodedHistory } from '../../engine/history-schema.ts'
 import type { CanonicalRecord } from '../../engine/record-schema.ts'
 import type { ObservedComment } from '../../engine/review-schema.ts'
-import { observeHistoricalPins } from './historical-pins.ts'
 import { decodeHistory } from './history-codec.ts'
 import {
   type PublicationFailure,
@@ -29,7 +28,7 @@ export async function freshHistory(
   if (!history.complete) {
     throw new GitHubHistoryReadError('GitHub publication history is incomplete', history.diagnostics)
   }
-  return observeHistoricalPins(decodeHistory(history), options, { candidate: record })
+  return decodeHistory(history)
 }
 
 async function postComment(record: CanonicalRecord, body: string, options: GitHubOptions): Promise<string> {

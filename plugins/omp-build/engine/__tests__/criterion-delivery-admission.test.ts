@@ -13,7 +13,7 @@ import {
   shippedMandate,
 } from '../../testing/workflow-decision-cases/support/workflow-decision-fixtures.ts'
 import { actionInputDigest, canonicalValueDigest } from '../action-input.ts'
-import type { DeliveryDataRef } from '../action-input-schema.ts'
+import type { ActionInputs, DeliveryDataRef } from '../action-input-schema.ts'
 import { recordInputRefSchema } from '../action-input-schema.ts'
 import { criterionAssessmentForDecision } from '../criterion-decision.ts'
 import { selectedDeclarations } from '../criterion-decision-selection.ts'
@@ -35,7 +35,7 @@ import {
 import type { ActionReceiptPayload } from '../workflow-receipt-schema.ts'
 import { evidenceDeclaration } from './criterion-admission-fixture.ts'
 import { deliveredLeaf } from './uw-delivery-proof-fixture.ts'
-import { binding } from './workflow-test-support.ts'
+import { binding, history as nativeHistory } from './workflow-test-support.ts'
 
 type PlanResult = ReceiptRecord & {
   payload: Extract<ActionReceiptPayload, { action: 'plan'; phase: 'result' }>
@@ -110,6 +110,11 @@ function refFor(
   }
 }
 
+function withDeliveryData(inputs: ActionInputs, deliveryData: DeliveryDataRef[]): ActionInputs {
+  const manifest = { ...inputs.manifest, deliveryData }
+  return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
+}
+
 describe('authorized criterion delivery admission', () => {
   test('keeps a produced plan with a null admission eligible', () => {
     const mandate = shippedMandate()
@@ -130,13 +135,7 @@ describe('authorized criterion delivery admission', () => {
         ),
         bound.bindingHistory,
       ],
-      {
-        ...bound.inputs,
-        manifest: {
-          ...bound.inputs.manifest,
-          deliveryData: [refFor(plan, 'plan', '/payload/structured', plan.payload.structured)],
-        },
-      },
+      withDeliveryData(bound.inputs, [refFor(plan, 'plan', '/payload/structured', plan.payload.structured)]),
       diagnostics,
       fixtureReviewClassCatalogues(),
     )
@@ -171,7 +170,8 @@ describe('authorized criterion delivery admission', () => {
     const bound = boundReview(current)
     const inputs = bound.inputs
     const headed = fixture.implementation
-    if (!isImplementResult(headed)) throw new Error('implement shape')
+    if (!isImplementResult(headed) || headed.payload.structured?.outcome !== 'implemented')
+      throw new Error('expected produced implementation')
     const issue = fixture.observation.histories.find((item) => item.source.scope.target === fixture.uw.target)
     const start =
       issue &&
@@ -183,17 +183,67 @@ describe('authorized criterion delivery admission', () => {
     const diagnostics: Diagnostic[] = []
     selectedDeclarations(
       [scoped([current, plan, start, headed], current), bound.bindingHistory],
-      {
-        ...inputs,
-        manifest: {
-          ...inputs.manifest,
-          deliveryData: [refFor(headed, 'implementation', '/payload/structured', headed.payload.structured)],
-        },
-      },
+      withDeliveryData(inputs, [
+        refFor(headed, 'implementation', '/payload/structured/criteria/0', headed.payload.structured.criteria[0]),
+      ]),
       diagnostics,
       fixtureReviewClassCatalogues(),
     )
     expect(codes(diagnostics)).toContain('unconfirmed')
+  })
+
+  test('requires complete historical inputs even for an implementation claim without cited evidence', async () => {
+    const fixture = await deliveredLeaf()
+    const receipt = fixture.implementation
+    if (!isImplementResult(receipt) || receipt.payload.structured?.outcome !== 'implemented')
+      throw new Error('expected produced implementation')
+    const declaration = { target: fixture.declaration.target, verification: 'unverified' as const, reason: 'not run' }
+    const payload = receipt.payload
+    const structured = { ...receipt.payload.structured, criteria: [declaration] }
+    const ref = recordInputRefSchema.parse({
+      source: 'record',
+      record: { scope: fixture.pullRequest, kind: 'workflow-binding', recordId: fixture.binding.recordId },
+      selector: '/payload',
+      digest: canonicalValueDigest(fixture.binding.payload),
+    })
+    const cases = {
+      valid: ref,
+      absentRecord: { ...ref, record: { ...ref.record, recordId: 'missing-context-record' } },
+      wrongScope: { ...ref, record: { ...ref.record, scope: fixture.uw } },
+      wrongSelector: { ...ref, selector: '/not-a-field' },
+      wrongDigest: { ...ref, digest: canonicalValueDigest('different value') },
+    }
+    const issue = fixture.review.issueHistory
+    const otherHistories = fixture.observation.histories.filter((item) => item !== issue)
+    const inputs = withDeliveryData(fixture.inputs, [
+      refFor(receipt, 'implementation', '/payload/structured/criteria/0', declaration),
+    ])
+    for (const [label, expansion] of Object.entries(cases)) {
+      const manifest = { ...payload.inputs.manifest, expandedContext: [expansion] }
+      const changed = { ...payload.inputs, manifest, fingerprint: actionInputDigest(manifest) }
+      const records = recordsOf(issue).map((record): CanonicalRecord => {
+        if (record.recordId === receipt.recordId)
+          return { ...receipt, payload: { ...payload, structured, inputs: changed } }
+        if (
+          record.kind === 'action-receipt' &&
+          record.payload.action === 'implement' &&
+          record.payload.phase === 'start' &&
+          record.recordId === payload.start.recordId
+        )
+          return { ...record, payload: { ...record.payload, inputs: changed } }
+        return record
+      })
+      const native = nativeHistory(records, fixture.uw)
+      const diagnostics: Diagnostic[] = []
+      const selected = selectedDeclarations(
+        [native, ...otherHistories],
+        inputs,
+        diagnostics,
+        fixtureReviewClassCatalogues(),
+      )
+      expect(selected, label).toEqual({ declarations: label === 'valid' ? [declaration] : [], evidence: [] })
+      expect(diagnostics.length === 0, label).toBe(label === 'valid')
+    }
   })
 
   test('refuses a forged external author and a mismatched operation id', async () => {
@@ -297,15 +347,9 @@ describe('authorized criterion delivery admission', () => {
         forgedHistory,
         ...fixture.observation.histories.filter((item) => item.source.scope.target !== fixture.uw.target),
       ],
-      {
-        ...inputs,
-        manifest: {
-          ...inputs.manifest,
-          deliveryData: [
-            refFor(refusedReceipt, 'implementation', '/payload/structured', refusedReceipt.payload.structured),
-          ],
-        },
-      },
+      withDeliveryData(inputs, [
+        refFor(refusedReceipt, 'implementation', '/payload/structured/criteria/0', evidenceDeclaration(unresolved)),
+      ]),
       refusedDiagnostics,
       fixtureReviewClassCatalogues(),
     )

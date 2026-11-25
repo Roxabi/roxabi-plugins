@@ -23,21 +23,28 @@ import {
 import { assessFixture, mandateAssessmentState, proposedAssessmentState } from './workflow-spec-assessment-support.ts'
 import { featureMandate, history, SCOPE } from './workflow-test-support.ts'
 
-function selectPin(inputs: ActionInputs, pin: PinnedFileRef): ActionInputs {
-  const manifest = { ...inputs.manifest, repositoryReferences: [pin] }
+function selectPin(inputs: ActionInputs, pin: PinnedFileRef, expansion?: PinnedFileRef): ActionInputs {
+  const manifest = {
+    ...inputs.manifest,
+    repositoryReferences: [pin],
+    expandedContext: expansion === undefined ? inputs.manifest.expandedContext : [expansion],
+  }
   return { ...inputs, manifest, fingerprint: actionInputDigest(manifest) }
 }
 
-test('compatibility and criterion citations require both manifest selection and the exact observed Git bytes', async () => {
+test('Git citations require manifest selection and ignore local blob replacements', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'omp-git-citations-'))
   const git = (...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
   const bytes = 'Reload keeps the selected region.\n'
   const path = 'region.txt'
+  const contextPath = 'extra-context.txt'
+  const contextBytes = 'Unrelated context that the action nevertheless selected.\n'
   try {
     git('init', '-q')
     git('remote', 'add', 'origin', `https://github.com/${SCOPE.repository}.git`)
     writeFileSync(join(cwd, path), bytes)
-    git('add', '--', path)
+    writeFileSync(join(cwd, contextPath), contextBytes)
+    git('add', '--', path, contextPath)
     git('-c', 'user.name=Git Citations', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'Seed evidence')
     const commit = git('rev-parse', 'HEAD')
     const code = { repository: SCOPE.repository, commit }
@@ -47,7 +54,17 @@ test('compatibility and criterion citations require both manifest selection and 
       path,
       digest: createHash('sha256').update(bytes).digest('hex'),
     }
-    const wrongDigest = { ...valid, digest: createHash('sha256').update('Different evidence.\n').digest('hex') }
+    const replacementBytes = 'Different evidence.\n'
+    const replacementBlob = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+      cwd,
+      encoding: 'utf8',
+      input: replacementBytes,
+    }).trim()
+    const expression = `${commit}:${path}`
+    git('config', 'core.useReplaceRefs', 'true')
+    git('replace', git('rev-parse', expression), replacementBlob)
+    expect(git('cat-file', 'blob', expression)).toBe(replacementBytes.trim())
+    const replacedDigest = { ...valid, digest: createHash('sha256').update(replacementBytes).digest('hex') }
     const missingObject = { ...valid, commit: '0'.repeat(40) }
     const mandate = featureMandate()
     const accepted = mandateAssessmentState(mandate)
@@ -70,7 +87,31 @@ test('compatibility and criterion citations require both manifest selection and 
     const examined = baseline.examined[0]
     if (examined?.codeLink.method !== 'test') throw new Error('expected a test code link')
     const link = examined.codeLink
-    const cases = Object.entries({ valid, wrongDigest, missingObject }).map(([label, pin]) => {
+    const validExpansion = {
+      ...valid,
+      path: contextPath,
+      digest: createHash('sha256').update(contextBytes).digest('hex'),
+    }
+    const pinCases: { label: string; pin: PinnedFileRef; expansion?: PinnedFileRef; validAfterObservation: boolean }[] =
+      [
+        { label: 'valid', pin: valid, validAfterObservation: true },
+        { label: 'replacedDigest', pin: replacedDigest, validAfterObservation: false },
+        { label: 'missingObject', pin: missingObject, validAfterObservation: false },
+        { label: 'completeExpansion', pin: valid, expansion: validExpansion, validAfterObservation: true },
+        {
+          label: 'absentExpansion',
+          pin: valid,
+          expansion: { ...validExpansion, path: 'absent.txt' },
+          validAfterObservation: false,
+        },
+        {
+          label: 'wrongExpansionDigest',
+          pin: valid,
+          expansion: { ...validExpansion, digest: valid.digest },
+          validAfterObservation: false,
+        },
+      ]
+    const cases = pinCases.map(({ label, pin, expansion, validAfterObservation }) => {
       const fixture = assessFixture(mandate, label, accepted, proposed, 'editorial', [source])
       const parsed = specAssessmentSchema.parse(fixture.result.payload.structured)
       if (parsed.compatibility.state !== 'consistent') throw new Error('expected a consistent assessment')
@@ -79,7 +120,7 @@ test('compatibility and criterion citations require both manifest selection and 
         ...fixture.result,
         payload: {
           ...fixture.result.payload,
-          inputs: selectPin(fixture.result.payload.inputs, pin),
+          inputs: selectPin(fixture.result.payload.inputs, pin, expansion),
           structured: assessment,
         },
       }
@@ -87,25 +128,32 @@ test('compatibility and criterion citations require both manifest selection and 
         ...baseline,
         examined: [{ ...examined, codeLink: { ...link, after: { ...link.after, references: [pin] } } }],
       }
-      return { label, pin, result, assessment, verdict }
+      return { label, pin, expansion, result, assessment, verdict, validAfterObservation }
     })
     const decoded = history([mandate, ...cases.map(({ result }) => result)])
     const assertAdmission = (
-      { label, pin, result, assessment, verdict }: (typeof cases)[number],
-      authorized: boolean,
+      { label, pin, expansion, result, assessment, verdict, validAfterObservation }: (typeof cases)[number],
+      observed: boolean,
     ) => {
+      const authorized = observed && validAfterObservation
+      const citationAuthorized = observed && (authorized || expansion !== undefined)
+      const unauthenticatedExpansion = expansion !== undefined && !authorized
       const denial = expect.objectContaining({
         code: 'unknown-reference',
         message: expect.stringContaining('pinned source'),
       })
       const pins = result.payload.inputs.manifest.repositoryReferences
-      expect(observationRefDiagnostics(label, pin, [decoded], pins)).toEqual(authorized ? [] : [denial])
+      expect(observationRefDiagnostics(label, pin, [decoded], pins), label).toEqual(citationAuthorized ? [] : [denial])
       expect(constraintExaminationProblem(assessment.compatibility.examined, result, assessment, [decoded])).toBe(
-        authorized ? null : 'Compatibility citation is not authenticated',
+        authorized
+          ? null
+          : unauthenticatedExpansion
+            ? 'Compatibility assessment inputs are not authenticated'
+            : 'Compatibility citation is not authenticated',
       )
       const assessed = criterionAssessmentForDecision(
         judgment,
-        selectPin(review, pin),
+        selectPin(review, pin, expansion),
         {
           declarations: [evidenceDeclaration(evidence)],
           evidence: [{ ref: examined.evidence, value: evidence }],
@@ -115,7 +163,13 @@ test('compatibility and criterion citations require both manifest selection and 
         code,
         [decoded],
       )
-      expect(assessed).toEqual({ forceRequestChanges: !authorized, diagnostics: authorized ? [] : [denial] })
+      const expectedDiagnostic = unauthenticatedExpansion
+        ? expect.objectContaining({ code: 'unconfirmed', message: expect.stringContaining(expansion.path) })
+        : denial
+      expect(assessed, label).toEqual({
+        forceRequestChanges: !authorized,
+        diagnostics: authorized ? [] : [expectedDiagnostic],
+      })
     }
     for (const candidate of cases) assertAdmission(candidate, false)
     await observeHistoricalPins(decoded, {
@@ -125,7 +179,7 @@ test('compatibility and criterion citations require both manifest selection and 
         throw new Error('Fixture has no remote Git objects')
       },
     })
-    for (const candidate of cases) assertAdmission(candidate, candidate.label === 'valid')
+    for (const candidate of cases) assertAdmission(candidate, true)
     expect(observationRefDiagnostics('unselected', valid, [decoded], [])).toEqual([
       expect.objectContaining({ code: 'unknown-reference' }),
     ])
