@@ -1,6 +1,10 @@
-# The reviewed label arms GitHub native auto-merge (merge commit) on the event head.
-# The PR_Main ruleset requires ci and App-issued review on that head before merge.
-# synchronize disarms with the job token and drops the reviewed label.
+# The reviewed label arms GitHub native auto-merge (merge commit) on the event head
+# of a PR into the default branch, unless a check on that head already failed.
+# The App only arms, never merges: GitHub merges once the PR_Main ruleset (ci and
+# App-issued review on that head) holds for the base in effect at that time. A PR
+# that is already mergeable is refused with the merge command to run instead.
+# A head change (synchronize) or a base change (edited) disarms with the job
+# token and drops the reviewed label.
 # Dependabot can arm only for semver-minor or semver-patch updates whose every
 # commit author is dependabot[bot].
 #
@@ -10,7 +14,7 @@ name: Auto Merge
 on:
   # This privileged workflow runs from the base repository and checks out no code.
   pull_request_target:
-    types: [labeled, synchronize]
+    types: [labeled, synchronize, edited]
 
 # Each job receives only the permissions it needs.
 permissions: {}
@@ -29,15 +33,17 @@ jobs:
       issues: write
     if: >-
       github.event_name == 'pull_request_target' &&
-      (github.event.action == 'synchronize' || github.event.label.name == 'reviewed')
+      (github.event.action == 'synchronize' ||
+        (github.event.action == 'edited' && github.event.changes.base != null) ||
+        github.event.label.name == 'reviewed')
     timeout-minutes: 5
     steps:
-      # Moved head: disable auto-merge before dropping a reviewed label.
+      # Moved head or base: disable auto-merge before dropping a reviewed label.
       # GH_TOKEN is the job token (contents and pull-requests write), not the app token,
       # so a mint failure cannot leave the merge armed.
       # always() keeps the step reachable if a prior step failed.
       - name: Disarm auto-merge on a moved head
-        if: always() && github.event.action == 'synchronize'
+        if: always() && github.event.action != 'labeled'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -87,7 +93,7 @@ jobs:
             armed=1
           fi
           if [ "$armed" -eq 1 ] || [ "$labeled" -eq 1 ]; then
-            echo "::error::head moved after review — auto-merge disarmed"
+            echo "::error::head or base moved after review — auto-merge disarmed"
             exit 1
           fi
 
@@ -96,13 +102,15 @@ jobs:
       # for a PR touching .github/workflows, workflows write.
       - name: Mint app token (roxabi-ci)
         id: app
-        if: github.event.action == 'labeled'
+        if: github.event.action == 'labeled' && github.event.pull_request.base.ref == github.event.repository.default_branch
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
         with:
           app-id: ${{ vars.ROXABI_CI_APP_ID }}
           private-key: ${{ secrets.ROXABI_CI_APP_PRIVATE_KEY }}
+          permission-checks: read
           permission-contents: write
           permission-pull-requests: write
+          permission-statuses: read
           permission-workflows: write
 
       # Read the real update-type from Dependabot's metadata rather than parsing the
@@ -112,7 +120,10 @@ jobs:
       # For a grouped PR, fetch-metadata reports the HIGHEST update-type in the group.
       - name: Fetch dependabot metadata
         id: dependabot-meta
-        if: github.event.action == 'labeled' && github.event.pull_request.user.login == 'dependabot[bot]'
+        if: >-
+          github.event.action == 'labeled' &&
+          github.event.pull_request.base.ref == github.event.repository.default_branch &&
+          github.event.pull_request.user.login == 'dependabot[bot]'
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98
         with:
           github-token: ${{ steps.app.outputs.token }}
@@ -124,6 +135,8 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
           DEPENDABOT_UPDATE_TYPE: ${{ steps.dependabot-meta.outputs.update-type }}
         run: |
@@ -132,6 +145,11 @@ jobs:
             echo "::error::$1"
             exit 1
           }
+          # Only the default branch has a ruleset requiring ci and review; gh merges
+          # an already mergeable PR into any other branch at once.
+          if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            refuse "refusing auto-merge: PR targets $BASE_REF, not $DEFAULT_BRANCH"
+          fi
           # Only verified semver-minor/patch updates with exclusively
           # Dependabot-authored commits can take the Dependabot lane.
           if [ "$AUTHOR" = "dependabot[bot]" ]; then
@@ -147,21 +165,68 @@ jobs:
               refuse 'refusing auto-merge: Dependabot PR has a non-Dependabot commit author'
             fi
           fi
+          # The label event may be stale, and GitHub offers no expected base on a
+          # merge: read the live PR right before each arming call.
+          live_check() {
+            if ! live=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json id,baseRefName,headRefOid,mergeStateStatus,statusCheckRollup); then
+              refuse 'refusing auto-merge: could not read the pull request'
+            fi
+            if ! live_base=$(printf '%s' "$live" | jq -er '.baseRefName') || [ "$live_base" != "$DEFAULT_BRANCH" ]; then
+              refuse "refusing auto-merge: PR now targets ${live_base:-an unknown branch}, not $DEFAULT_BRANCH"
+            fi
+            if ! live_head=$(printf '%s' "$live" | jq -er '.headRefOid') || [ "$live_head" != "$HEAD_SHA" ]; then
+              refuse 'refusing auto-merge: the head moved after the label'
+            fi
+            if ! pr_id=$(printf '%s' "$live" | jq -er '.id'); then
+              refuse 'refusing auto-merge: could not read the pull request'
+            fi
+            # Checks outside the ruleset (e.g. trufflehog) do not block native
+            # auto-merge, so a head whose check already failed does not arm. Only the
+            # latest run of each check counts, and this workflow's own runs (a
+            # disarm fails on purpose) never do.
+            if ! failed=$(printf '%s' "$live" | jq -er --arg self "$GITHUB_WORKFLOW" '[.statusCheckRollup[]
+              | select((.workflowName // "") != $self)
+              | {key: [(.__typename // ""), (.workflowName // ""), (.name // .context // "")],
+                 at: (.startedAt // .createdAt // ""),
+                 failed: (((.conclusion // "") | ascii_downcase | IN("failure", "timed_out", "startup_failure"))
+                   or ((.state // "") | ascii_downcase | IN("failure", "error")))}]
+              | group_by(.key) | map(max_by(.at)) | map(select(.failed) | .key[2]) | join(", ")'); then
+              refuse 'refusing auto-merge: could not read the checks of the head'
+            fi
+            if [ -n "$failed" ]; then
+              refuse "refusing auto-merge: failed checks on the head: $failed"
+            fi
+            # The App only arms: a direct merge could land on a base changed after
+            # this read. A PR that is mergeable now is merged by a person.
+            case "$(printf '%s' "$live" | jq -r '.mergeStateStatus')" in
+              CLEAN | UNSTABLE | HAS_HOOKS)
+                refuse "refusing auto-merge: PR is already mergeable; merge it with: gh pr merge $PR_NUMBER --merge --match-head-commit $HEAD_SHA" ;;
+            esac
+          }
+          arm() {
+            # shellcheck disable=SC2016 # GraphQL variables, not shell expansions
+            gh api graphql -f id="$pr_id" -f head="$HEAD_SHA" -f query='
+              mutation($id: ID!, $head: GitObjectID!) {
+                enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $head, mergeMethod: MERGE}) {
+                  pullRequest { autoMergeRequest { enabledAt } }
+                }
+              }' 2>&1
+          }
           if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             refuse 'refusing auto-merge without the reviewed commit'
           fi
-          set +e
-          out=$(gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$HEAD_SHA" 2>&1)
-          code=$?
-          set -e
-          if [ "$code" -ne 0 ]; then
+          live_check
+          if ! out=$(arm); then
             printf '%s\n' "$out" >&2
             if ! printf '%s' "$out" | grep -qi 'already enabled'; then
-              refuse 'refusing to enable auto-merge without the reviewed commit'
+              refuse 'refusing to enable auto-merge on the reviewed commit'
             fi
             gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --disable-auto
-            if ! gh pr merge "$PR_NUMBER" --auto --merge --repo "$GITHUB_REPOSITORY" --match-head-commit "$HEAD_SHA"; then
-              refuse 'refusing to enable auto-merge without the reviewed commit'
+            live_check
+            if ! out=$(arm); then
+              printf '%s\n' "$out" >&2
+              refuse 'refusing to enable auto-merge on the reviewed commit'
             fi
           fi
 
