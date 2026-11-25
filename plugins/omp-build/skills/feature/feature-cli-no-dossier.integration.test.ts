@@ -89,10 +89,10 @@ it.each(['approval', 'correction'] as const)('composes delivery after %s without
       `branch: ${branch}`,
       'base: main',
       `worktree: ${f.cwd}`,
-      '',
-      '## Accepted Spec',
     ].join('\n'),
   )
+  expect(context).toMatch(/^delivery: [a-f0-9-]{36}$/m)
+  expect(context).toContain('\n## Accepted Spec\n')
   const mandate = /^mandate: (.+)$/m.exec(context)?.[1]
   const digest = /^spec: ([a-f0-9]{64})$/m.exec(context)?.[1]
   if (!mandate || !digest) throw new Error('Expected mandate and Accepted Spec digest from /feature')
