@@ -1,4 +1,5 @@
-import { rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type GitHubFake, ghCalls, REAL_BUN, recipeEnv, run, startGitHub, writeGh } from './fixtures/github-api'
@@ -50,7 +51,7 @@ function setup(options?: RepoFixtureOptions, env: Record<string, string> = {}): 
 function codeInRepo(fixture: Fixture, source: string) {
   const script = join(fixture.root, 'probe.ts')
   writeFileSync(script, `import { detectGitHubRepo } from ${JSON.stringify(HELPERS)}\n${source}\n`)
-  return run(`bun --no-env-file ${JSON.stringify(script)}`, fixture.cwd, fixture.env)
+  return run(`${JSON.stringify(REAL_BUN)} --no-env-file ${JSON.stringify(script)}`, fixture.cwd, fixture.env)
 }
 
 function resolveRepo(fixture: Fixture) {
@@ -107,14 +108,97 @@ describe('origin-first tracker discovery (#614)', () => {
   })
 
   it.each([
-    ['GITHUB_REPO', 'Pin/env', { GITHUB_REPO: 'Pin/env' }],
-    ['github_repo', 'Pin/yaml', {}],
-  ] as const)('honors the %s pin before a foreign origin or gh', async (_name, repo, env) => {
-    const fixture = setup({ yamlPin: 'Pin/yaml', origin: 'git@gitlab.com:acme/product.git' }, env)
+    ['GITHUB_REPO', `https://github.com/${PRODUCT}.git`, 'Pin/env', { GITHUB_REPO: 'Pin/env' }],
+    ['github_repo', `https://github.com/${PRODUCT}.git`, 'Pin/yaml', {}],
+    ['GITHUB_REPO', 'git@gitlab.com:acme/product.git', 'Pin/env', { GITHUB_REPO: 'Pin/env' }],
+    ['github_repo', 'git@gitlab.com:acme/product.git', 'Pin/yaml', {}],
+  ] as const)('honors the %s pin over %s', async (_name, origin, repo, env) => {
+    const fixture = setup({ yamlPin: 'Pin/yaml', origin }, env)
     const result = await resolveRepo(fixture)
     expect(result.code).toBe(0)
     expect(result.stdout.trim()).toBe(repo)
     expect(result.stderr).toBe('')
+    expect(repoProbes(fixture)).toEqual([])
+  })
+
+  it.each(['Pin/yaml', "'Pin/yaml'", '"Pin/yaml"'])(
+    'accepts multiline YAML pin %s ahead of usable origin',
+    async (pin) => {
+      const fixture = setup({ yamlPin: 'unused' })
+      writeFileSync(join(fixture.cwd, '.dev/dev-core.yml'), `github_repo:\n  ${pin}\n`)
+      const result = await resolveRepo(fixture)
+      expect(result.code).toBe(0)
+      expect(result.stdout.trim()).toBe('Pin/yaml')
+      expect(repoProbes(fixture)).toEqual([])
+    },
+  )
+
+  it('uses the SSH profile configured in core.sshCommand and honors GIT_SSH_COMMAND above it', async () => {
+    const fixture = setup({ origin: 'git@profile-only:Acme/product.git', single: true })
+    const profile = join(fixture.root, 'work profile')
+    const ssh = join(fixture.bin, 'profile-ssh')
+    writeFileSync(
+      ssh,
+      `#!/bin/sh
+[ "$1" = -F ] && [ "$2" = "$EXPECTED_PROFILE" ] && [ "$3" = -G ] || exit 92
+for host; do :; done
+[ "$host" = profile-only ] || exit 93
+printf 'hostname github.com\\n'
+`,
+      { mode: 0o755 },
+    )
+    const command = `${JSON.stringify(ssh)} -F ${JSON.stringify(profile)}`
+    execFileSync('git', ['config', 'core.sshCommand', command], { cwd: fixture.cwd, env: fixture.env, stdio: 'pipe' })
+    fixture.env.EXPECTED_PROFILE = profile
+    fixture.env.GIT_SSH = '/not-the-configured-program'
+    const local = await resolveRepo(fixture)
+    expect(local.code).toBe(0)
+    expect(local.stdout.trim()).toBe(PRODUCT)
+
+    fixture.env.GIT_SSH_COMMAND = 'false'
+    const overridden = await resolveRepo(fixture)
+    expect(overridden.code).not.toBe(0)
+    expect(overridden.stderr).toContain('Set GITHUB_REPO or github_repo')
+    expect(repoProbes(fixture)).toEqual([])
+  })
+
+  it('uses GIT_SSH as a program and refuses an explicitly non-OpenSSH variant', async () => {
+    const fixture = setup({ origin: 'git@github-work:Acme/product.git', single: true })
+    fixture.env.GIT_SSH = join(fixture.bin, 'ssh program with spaces')
+    symlinkSync(join(fixture.bin, 'ssh'), fixture.env.GIT_SSH)
+    const supported = await resolveRepo(fixture)
+    expect(supported.code).toBe(0)
+    expect(supported.stdout.trim()).toBe(PRODUCT)
+
+    fixture.env.GIT_SSH_VARIANT = 'plink'
+    const refused = await resolveRepo(fixture)
+    expect(refused.code).not.toBe(0)
+    expect(refused.stderr).toContain('Set GITHUB_REPO or github_repo')
+    expect(repoProbes(fixture)).toEqual([])
+  })
+
+  it.each(['git@github.com:Acme/product.git', 'ssh://git@ssh.github.com:443/Acme/product.git'])(
+    'resolves literal GitHub SSH origin %s with no ssh executable on PATH',
+    async (origin) => {
+      const fixture = setup({ origin, single: true })
+      const minimalBin = join(fixture.root, 'no-ssh-bin')
+      mkdirSync(minimalBin)
+      for (const name of ['bash', 'git']) symlinkSync(`/usr/bin/${name}`, join(minimalBin, name))
+      fixture.env.PATH = minimalBin
+      const result = await resolveRepo(fixture)
+      expect(result.code).toBe(0)
+      expect(result.stdout.trim()).toBe(PRODUCT)
+      expect(result.stderr).toBe('')
+    },
+  )
+
+  it('times out a stalled SSH alias probe and refuses without calling gh', async () => {
+    const fixture = setup({ origin: 'git@github-work:Acme/product.git' })
+    writeFileSync(join(fixture.bin, 'ssh'), '#!/bin/sh\nexec sleep 30\n')
+    const result = await resolveRepo(fixture)
+    expect(result.signal).toBeNull()
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('Set GITHUB_REPO or github_repo')
     expect(repoProbes(fixture)).toEqual([])
   })
 
@@ -184,6 +268,18 @@ describe('origin-first triage commands', () => {
     const other = await triage('init --dry-run --repo Other/unrelated')
     expect(other.stdout).toContain('contract: skip-other-repo')
     expect(other.stdout).toContain('Other/unrelated is not the local repo acme/product')
+  })
+
+  it('refuses a credential-bearing --repo before repository discovery or output', async () => {
+    const fixture = setup()
+    const { github, triage } = await commands(fixture)
+    const value = `https://user:${CREDENTIAL}@github.com/Acme/product`
+    const result = await triage(`init --dry-run --repo ${value}`)
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('init: --repo needs owner/repo')
+    expect(result.stdout + result.stderr).not.toContain(CREDENTIAL)
+    expect(ghCalls(fixture.log)).toEqual([])
+    expect(github.calls).toEqual([])
   })
 
   it('targets product, not the kit parent, in fresh create and set processes', async () => {

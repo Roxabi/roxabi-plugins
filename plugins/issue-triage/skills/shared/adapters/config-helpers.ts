@@ -15,22 +15,26 @@ import { ConfigError } from '../domain/errors'
  */
 const DEV_CORE_YML = '.dev/dev-core.yml'
 
-function repoPin(): string | undefined {
+function repoPin(): unknown {
   if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
 
+  let yaml: string
   try {
-    const yaml = readFileSync(DEV_CORE_YML, 'utf-8')
-    const value = yaml.match(/^github_repo:[ \t]*([^\r\n]*)/m)?.[1].trim()
-    if (!value) return undefined
-    const quote = value[0]
-    if ((quote === "'" || quote === '"') && value.endsWith(quote) && value.length > 1) {
-      return value.slice(1, -1) || undefined
-    }
-    return value
+    yaml = readFileSync(DEV_CORE_YML, 'utf-8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return undefined
   }
+
+  let document: unknown
+  try {
+    document = Bun.YAML.parse(yaml)
+  } catch {
+    throw new ConfigError('Cannot parse .dev/dev-core.yml. Set GITHUB_REPO or correct the YAML.')
+  }
+  if (!document || typeof document !== 'object' || !Object.hasOwn(document, 'github_repo')) return undefined
+  const value = (document as Record<string, unknown>).github_repo
+  return value === '' || value === null ? undefined : value
 }
 
 /**
@@ -46,9 +50,12 @@ export function sameGitHubRepo(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
 }
 
-function commandOutput(args: string[]): string | undefined {
+function commandOutput(
+  args: string[],
+  options?: Pick<Bun.SpawnOptions.SpawnSyncOptions<'ignore', 'pipe', 'pipe'>, 'env' | 'timeout' | 'killSignal'>,
+): string | undefined {
   try {
-    const proc = Bun.spawnSync(args, { stdout: 'pipe', stderr: 'pipe' })
+    const proc = Bun.spawnSync(args, { stdout: 'pipe', stderr: 'pipe', ...options })
     if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
   } catch {
     // A missing executable cannot establish repository identity.
@@ -56,39 +63,64 @@ function commandOutput(args: string[]): string | undefined {
 }
 
 function ghRepo(): string | undefined {
-  const repo = commandOutput(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
+  const repo = commandOutput(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+    env: { ...process.env, GH_HOST: 'github.com' },
+  })
   return repo && REPO_SLUG_RE.test(repo) ? repo : undefined
 }
 
-function originRepo(url: string): string | undefined {
-  // Parse the authority as well as the path: a foreign host can also use owner/repo.
-  const uri = /^(https?|git|ssh):\/\/(?:([^/@:]+)(?::[^/@]*)?@)?([a-z0-9_][a-z0-9._-]*)(?::(\d+))?\/(.+)$/i.exec(url)
-  const scp = uri ? null : /^(?:([^/@:]+)@)?([a-z0-9_][a-z0-9._-]*):([^/].*)$/i.exec(url)
-  const host = uri?.[3] ?? scp?.[2]
-  const pathname = uri?.[5] ?? scp?.[3]
-  const repo = pathname?.replace(/\/$/, '').replace(/\.git$/, '')
-  if (!host || !repo || !REPO_SLUG_RE.test(repo)) return undefined
-
-  if (uri && uri[1].toLowerCase() !== 'ssh') return host.toLowerCase() === 'github.com' ? repo : undefined
-
-  // Ask OpenSSH about the effective host without opening an SSH connection.
-  // Disable DNS canonicalization; normal Host -> HostName aliases still apply.
-  const args = ['ssh', '-G', '-o', 'CanonicalizeHostname=no']
-  const user = uri?.[2] ?? scp?.[1]
-  const port = uri?.[4]
+function sshHostname(host: string, user?: string, port?: string): string | undefined {
+  const variant = process.env.GIT_SSH_VARIANT ?? commandOutput(['git', 'config', '--get', 'ssh.variant'])
+  if (variant && variant !== 'ssh' && variant !== 'auto') return undefined
+  const command = process.env.GIT_SSH_COMMAND ?? commandOutput(['git', 'config', '--get', 'core.sshCommand'])
+  // As in Git, only GIT_SSH_COMMAND and core.sshCommand are shell commands.
+  const args = command === undefined ? [process.env.GIT_SSH ?? 'ssh'] : ['sh', '-c', `${command} "$@"`, 'sh']
+  // Evaluate the configured host alias without opening an SSH connection or canonicalizing via DNS.
+  args.push('-G', '-o', 'CanonicalizeHostname=no')
   if (user) args.push('-l', user)
   if (port) args.push('-p', port)
   args.push('--', host)
-  const effectiveHost = commandOutput(args)
+  return commandOutput(args, { timeout: 5_000, killSignal: 'SIGKILL' })
     ?.match(/^hostname[ \t]+(\S+)$/m)?.[1]
     .toLowerCase()
+}
+
+function originRepo(url: string): string | undefined {
+  let host: string | undefined
+  let path: string | undefined
+  let user: string | undefined
+  let port: string | undefined
+  let ssh = true
+  if (url.includes('://')) {
+    // Do not accept URLs repaired by WHATWG normalization (e.g. missing
+    // authority, backslashes, or path traversal collapsing to owner/repo).
+    if (!/^(https?|git|ssh):\/\/[^/]/i.test(url) || /[\s\\]|\/(?:\.|%2e){1,2}(?=\/|[?#]|$)/i.test(url)) {
+      return undefined
+    }
+    const uri = URL.parse(url)
+    if (!uri || uri.search || uri.hash) return undefined
+    host = uri.hostname
+    path = uri.pathname.slice(1)
+    user = uri.username
+    port = uri.port
+    ssh = uri.protocol === 'ssh:'
+  } else {
+    const scp = /^(?:([a-z0-9_][a-z0-9._-]*)@)?([a-z0-9_][a-z0-9._-]*):([^/].*)$/i.exec(url)
+    if (scp) [, user, host, path] = scp
+  }
+  const repo = path?.replace(/\/$/, '').replace(/\.git$/, '')
+  if (!host || !repo || !REPO_SLUG_RE.test(repo)) return undefined
+  host = host.toLowerCase()
+  if (host === 'github.com' || (ssh && host === 'ssh.github.com')) return repo
+  if (!ssh || !/^[a-z0-9_][a-z0-9._-]*$/.test(host)) return undefined
+  const effectiveHost = sshHostname(host, user, port)
   return effectiveHost === 'github.com' || effectiveHost === 'ssh.github.com' ? repo : undefined
 }
 
 export function detectGitHubRepo({ notice = true } = {}): string {
   const pin = repoPin()
-  if (pin) {
-    if (REPO_SLUG_RE.test(pin)) return pin
+  if (pin !== undefined) {
+    if (typeof pin === 'string' && REPO_SLUG_RE.test(pin)) return pin
     throw new ConfigError('Invalid GitHub repo pin. Expected "owner/repo" in GITHUB_REPO or .dev/dev-core.yml.')
   }
 

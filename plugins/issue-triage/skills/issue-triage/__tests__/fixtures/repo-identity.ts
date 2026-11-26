@@ -14,7 +14,7 @@ export const supportedOrigins = [
   ['literal GitHub SCP', 'git@github.com:Acme/product.git'],
   ['literal GitHub SSH on port 443', 'ssh://git@ssh.github.com:443/Acme/product.git'],
   ['GitHub SCP alias', 'git@github-work:Acme/product.git'],
-  ['GitHub SSH alias', 'ssh://git@github-work:22/Acme/product.git'],
+  ['GitHub SSH alias with explicit port', 'ssh://git@github-work-port:22/Acme/product.git'],
 ] as const
 
 export const refusedOrigins = [
@@ -28,6 +28,10 @@ export const refusedOrigins = [
   ['GitHub name in a foreign HTTPS path', 'https://gitlab.com/x@github.com/Acme/product.git'],
   ['GitHub name in a foreign SCP path', 'git@gitlab.com:x@github.com:Acme/product.git'],
   ['GitHub HTTPS with extra path segments', 'https://github.com/group/Acme/product.git'],
+  ['GitHub HTTPS with an out-of-range port', `https://user:${CREDENTIAL}@github.com:65536/Acme/product.git`],
+  ['question mark before a GitHub-looking userinfo suffix', `https://user:${CREDENTIAL}?x@github.com/Acme/product.git`],
+  ['fragment before a GitHub-looking userinfo suffix', `https://user:${CREDENTIAL}#x@github.com/Acme/product.git`],
+  ['GitHub HTTPS path normalized to a different path', 'https://github.com/wrong/../Acme/product.git'],
 ] as const
 
 export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string }
@@ -45,7 +49,7 @@ export function repoFixture({ origin, single, yamlPin }: RepoFixtureOptions = {}
   if (!single) git('remote', 'add', 'upstream', `https://github.com/${PARENT}.git`)
   if (yamlPin !== undefined) {
     mkdirSync(join(cwd, '.dev'))
-    writeFileSync(join(cwd, '.dev', 'dev-core.yml'), `github_repo: '${yamlPin}'\n`)
+    writeFileSync(join(cwd, '.dev', 'dev-core.yml'), `github_repo : '${yamlPin}' # tracker pin\n`)
   }
   writeFileSync(
     join(bin, 'ssh'),
@@ -53,7 +57,22 @@ export function repoFixture({ origin, single, yamlPin }: RepoFixtureOptions = {}
 [ "$1" = -G ] || exit 91
 for host; do :; done
 case "$host" in
-  github-work) host=github.com ;;
+  github-work)
+    # Treat the alias as GitHub only in the same SSH context as the fetch.
+    case " $* " in
+      *' -l git -- github-work ') host=github.com ;;
+      *) host=gitlab.com ;;
+    esac ;;
+  github-work-port)
+    case " $* " in
+      *' -l git -p 22 -- github-work-port ') host=github.com ;;
+      *) host=gitlab.com ;;
+    esac ;;
+  ssh.github.com)
+    case " $* " in
+      *' -l git -p 443 -- ssh.github.com ') ;;
+      *) host=gitlab.com ;;
+    esac ;;
   gitlab-work) host=gitlab.com ;;
 esac
 printf 'hostname %s\n' "$host"

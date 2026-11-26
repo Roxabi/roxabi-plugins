@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { REAL_BUN } from './fixtures/github-api'
+import { REAL_BUN, recipeEnv, run, startGitHub } from './fixtures/github-api'
 import {
   CREDENTIAL,
   GIT_ENV,
@@ -131,13 +131,52 @@ describe('complexity scoring recipe', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec\n<!-- complexity: 1 -->\nrest' })
     expect(result.status).toBe(0)
     expect(result.called).toBe(true)
-    expect(result.ghLog).toContain(`issue view 42 --repo ${PRODUCT}`)
+    expect(result.ghLog).toContain(`issue view 42 --repo github.com/${PRODUCT}`)
     expect(result.setLog).toContain(`${PRODUCT} set ${PRODUCT}#42`)
     expect(result.setLog).toContain('--body-file')
     expect(result.body.match(/<!-- complexity:/g)).toHaveLength(1)
     expect(result.body).toContain('<!-- complexity: 4 -->')
     expect(result.body).not.toContain('<!-- complexity: 1 -->')
     expect(result.body).toContain('spec')
+  })
+
+  it('reads from github.com and updates its public issue even with an enterprise GH_HOST', async () => {
+    const { root, cwd, bin } = repoFixture()
+    try {
+      const github = await startGitHub(root, [`${PRODUCT}#42`])
+      try {
+        const log = join(root, 'gh.log')
+        writeFileSync(
+          join(bin, 'gh'),
+          `#!/bin/sh
+printf '%s\\n' "$*" >> "$RECIPE_GH_LOG"
+[ "$1 $2 $3" = 'issue view 42' ] || exit 94
+if [ "$4 $5" = '--repo github.com/${PRODUCT}' ]; then
+  echo 'public body'
+else
+  echo 'enterprise body'
+fi
+`,
+          { mode: 0o755 },
+        )
+        writeFileSync(join(bin, 'T'), '#!/bin/sh\nexec "$BUN" --no-env-file "$TRIAGE" "$@"\n', { mode: 0o755 })
+        const env = recipeEnv(github, bin, {
+          BUN: REAL_BUN,
+          GH_HOST: 'enterprise.example',
+          RECIPE_GH_LOG: log,
+          TRIAGE: triage,
+        })
+        const result = await run(recipeSource(), cwd, env)
+        expect(result.code, result.stderr).toBe(0)
+        expect(readFileSync(log, 'utf8')).toContain(`issue view 42 --repo github.com/${PRODUCT}`)
+        expect(github.issues.get(`${PRODUCT}#42`)?.body).toBe('public body\n\n<!-- complexity: 4 -->\n')
+        expect(github.calls).toMatchObject([{ method: 'PATCH', path: `/repos/${PRODUCT}/issues/42` }])
+      } finally {
+        await github.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('replaces one marker when it sits at the start of a body larger than the pipe', () => {
@@ -158,7 +197,7 @@ describe('complexity scoring recipe', () => {
   it.each(supportedOrigins)('uses %s for both read and write without probing gh repo view', (_name, origin) => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { origin })
     expect(result.status).toBe(0)
-    expect(result.ghLog.trim()).toBe(`issue view 42 --repo ${PRODUCT} --json body --jq .body`)
+    expect(result.ghLog.trim()).toBe(`issue view 42 --repo github.com/${PRODUCT} --json body --jq .body`)
     expect(result.setLog).toContain(`${PRODUCT} set ${PRODUCT}#42`)
     expect(result.stderr).toBe('')
   })
@@ -168,7 +207,7 @@ describe('complexity scoring recipe', () => {
       origin: 'https://github.com/acme/product.git',
     })
     expect(result.status).toBe(0)
-    expect(result.ghLog.trim()).toBe('issue view 42 --repo acme/product --json body --jq .body')
+    expect(result.ghLog.trim()).toBe('issue view 42 --repo github.com/acme/product --json body --jq .body')
     expect(result.setLog).toContain('acme/product set acme/product#42')
     expect(result.stderr).toBe('')
   })
@@ -186,23 +225,26 @@ describe('complexity scoring recipe', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { origin: null })
     expect(result.status).toBe(0)
     expect(result.ghLog).toContain('repo view')
-    expect(result.ghLog).toContain(`issue view 42 --repo ${PARENT}`)
+    expect(result.ghLog).toContain(`issue view 42 --repo github.com/${PARENT}`)
     expect(result.setLog).toContain(`${PARENT} set ${PARENT}#42`)
   })
 
-  it('honors the yaml pin over a foreign origin, and the env pin over both', () => {
-    const options = { origin: 'git@gitlab.com:acme/product.git', yamlPin: 'Pin/yaml' }
-    const yaml = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', options)
-    expect(yaml.status).toBe(0)
-    expect(yaml.ghLog).not.toContain('repo view')
-    expect(yaml.ghLog).toContain('issue view 42 --repo Pin/yaml')
-    expect(yaml.setLog).toContain('Pin/yaml set Pin/yaml#42')
-    const env = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'Pin/env' }, '4', options)
-    expect(env.status).toBe(0)
-    expect(env.ghLog).not.toContain('repo view')
-    expect(env.ghLog).toContain('issue view 42 --repo Pin/env')
-    expect(env.setLog).toContain('Pin/env set Pin/env#42')
-  })
+  it.each([`https://github.com/${PRODUCT}.git`, 'git@gitlab.com:acme/product.git'])(
+    'honors the yaml pin over %s, and the env pin over both',
+    (origin) => {
+      const options = { origin, yamlPin: 'Pin/yaml' }
+      const yaml = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', options)
+      expect(yaml.status).toBe(0)
+      expect(yaml.ghLog).not.toContain('repo view')
+      expect(yaml.ghLog).toContain('issue view 42 --repo github.com/Pin/yaml')
+      expect(yaml.setLog).toContain('Pin/yaml set Pin/yaml#42')
+      const env = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'Pin/env' }, '4', options)
+      expect(env.status).toBe(0)
+      expect(env.ghLog).not.toContain('repo view')
+      expect(env.ghLog).toContain('issue view 42 --repo github.com/Pin/env')
+      expect(env.setLog).toContain('Pin/env set Pin/env#42')
+    },
+  )
 
   it('rejects an invalid pin rather than reading or updating a different tracker', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'not-a-slug' }, '4', { yamlPin: 'Pin/yaml' })

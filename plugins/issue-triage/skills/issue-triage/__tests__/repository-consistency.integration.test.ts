@@ -63,7 +63,9 @@ describe('one repository per triage invocation', () => {
     ])
     const calls = readFileSync(w.log, 'utf8').trim().split('\n')
     expect(calls.filter((line) => line.startsWith('repo view'))).toHaveLength(1)
-    expect(calls.filter((line) => line.startsWith('issue edit'))).toEqual([expect.stringContaining('--repo Fork/app')])
+    expect(calls.filter((line) => line.startsWith('issue edit'))).toEqual([
+      expect.stringContaining('--repo github.com/Fork/app'),
+    ])
   })
 
   it('set keeps the detected repository for type, relation, labels and body', async () => {
@@ -78,7 +80,9 @@ describe('one repository per triage invocation', () => {
     expect(w.fake.issues.get('Upstream/app#80')).toMatchObject({ body: '', blockedBy: [] })
     const calls = readFileSync(w.log, 'utf8').trim().split('\n')
     expect(calls.filter((line) => line.startsWith('repo view'))).toHaveLength(1)
-    expect(calls.filter((line) => line.startsWith('issue edit'))).toEqual([expect.stringContaining('--repo Fork/app')])
+    expect(calls.filter((line) => line.startsWith('issue edit'))).toEqual([
+      expect.stringContaining('--repo github.com/Fork/app'),
+    ])
   })
 
   it('uses an explicitly qualified subject without ambient repository discovery', async () => {

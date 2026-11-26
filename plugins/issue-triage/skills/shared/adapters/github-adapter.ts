@@ -34,7 +34,7 @@ export function getGitHubToken(): string {
   }
 
   try {
-    const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
+    const proc = Bun.spawnSync(['gh', 'auth', 'token', '--hostname', 'github.com'], { stdout: 'pipe', stderr: 'pipe' })
     const token = new TextDecoder().decode(proc.stdout).trim()
     if (token) {
       cachedToken = token
@@ -216,7 +216,7 @@ export async function updateLabels(
       'label',
       'list',
       '--repo',
-      repo,
+      `github.com/${repo}`,
       '--limit',
       '200',
       '--json',
@@ -232,7 +232,7 @@ export async function updateLabels(
     )
     removeExisting = remove.filter((l) => existing.has(l))
   }
-  const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', repo]
+  const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', `github.com/${repo}`]
   if (add.length) args.push('--add-label', add.join(','))
   if (removeExisting.length) args.push('--remove-label', removeExisting.join(','))
   await run(args)
@@ -283,7 +283,19 @@ export interface IssueLabelSet {
 
 /** Label names defined on the repository. Does not delete any. */
 export async function listLabelNames(repo: string = detectGitHubRepo()): Promise<string[]> {
-  const out = await run(['gh', 'label', 'list', '--repo', repo, '--limit', '500', '--json', 'name', '--jq', '.[].name'])
+  const out = await run([
+    'gh',
+    'label',
+    'list',
+    '--repo',
+    `github.com/${repo}`,
+    '--limit',
+    '500',
+    '--json',
+    'name',
+    '--jq',
+    '.[].name',
+  ])
   return out
     .split('\n')
     .map((line) => line.trim())
@@ -304,7 +316,7 @@ export async function ensureLabel(
   const match = existing.find((have) => have.toLowerCase() === name.toLowerCase())
   if (match && match !== name) throw new Error(`label case mismatch: contract ${name}, repo ${match}`)
   if (match) return 'present'
-  await run(['gh', 'label', 'create', name, '--repo', repo, '--color', color])
+  await run(['gh', 'label', 'create', name, '--repo', `github.com/${repo}`, '--color', color])
   return 'created'
 }
 
@@ -315,7 +327,7 @@ export async function listIssueLabelSets(repo: string = detectGitHubRepo()): Pro
     'issue',
     'list',
     '--repo',
-    repo,
+    `github.com/${repo}`,
     '--state',
     'all',
     '--limit',

@@ -29,7 +29,7 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { detectGitHubRepo, sameGitHubRepo } from '../../shared/adapters/config-helpers'
+import { detectGitHubRepo, REPO_SLUG_RE, sameGitHubRepo } from '../../shared/adapters/config-helpers'
 import {
   ensureLabel,
   listEnabledOrgIssueTypes,
@@ -465,8 +465,10 @@ function parseArgs(args: string[]): {
       }
       if (arg === '--approve') approve = value
       else if (arg === '--operator-approval') operatorApproval = value
-      else if (arg === '--repo') repo = value
-      else root = value
+      else if (arg === '--repo') {
+        if (!REPO_SLUG_RE.test(value)) throw new Error('init: --repo needs owner/repo')
+        repo = value
+      } else root = value
       i++
       continue
     }
