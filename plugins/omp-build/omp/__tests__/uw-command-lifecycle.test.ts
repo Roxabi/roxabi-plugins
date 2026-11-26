@@ -365,7 +365,6 @@ describe('registered /uw command root lifecycle', () => {
     if (aborted) controller.abort()
 
     await subject.session(event, controller.signal)
-    subject.settle(0, true)
     await pending.terminal
 
     expect(subject.effects).toEqual([])

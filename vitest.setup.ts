@@ -1,7 +1,7 @@
 import type * as ChildProcess from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { CORE_SCHEMA, load as parseYaml } from 'js-yaml'
+import { CORE_SCHEMA, intCoreTag, mapTag, loadAll as parseYamlDocuments } from 'js-yaml'
 import { afterAll, afterEach, expect, vi } from 'vitest'
 import { unitSdkRoots } from './plugins/omp-build/testing/unit-sdk-scopes.ts'
 
@@ -31,6 +31,11 @@ vi.mock('@oh-my-pi/pi-tui/tools/task', () => ({
   oneLineLabel: () => {
     throw new Error('SDK task activity formatting is unavailable in the Node test host')
   },
+}))
+// Headless workers have no native host. Native tests opt in and use the real reconciler for geometry.
+vi.mock('@oh-my-pi/pi-tui/host', () => ({
+  nativeRendering: vi.fn(() => false),
+  nativeSupports: vi.fn(() => false),
 }))
 
 /**
@@ -182,6 +187,30 @@ patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
   return fn.apply(self, args)
 })
 
+const bunYamlSchema = CORE_SCHEMA.withTags(
+  {
+    ...intCoreTag,
+    resolve(source, explicit, tag) {
+      // Bun also accepts signed hex and octal without enabling YAML 1.1 scalars.
+      if (/^[+-]0[xo]/.test(source)) {
+        const magnitude = intCoreTag.resolve(source.slice(1), explicit, tag)
+        if (typeof magnitude === 'number') return source[0] === '-' ? -magnitude : magnitude
+      }
+      return intCoreTag.resolve(source, explicit, tag)
+    },
+  },
+  {
+    ...mapTag,
+    // Bun converts collection keys to object property names too.
+    addPair: (carrier, key, value) => mapTag.addPair(carrier, String(key), value),
+  },
+)
+
+function parseBunYaml(text: string): unknown {
+  const documents = parseYamlDocuments(text, { schema: bunYamlSchema })
+  return documents.length > 1 ? documents : (documents[0] ?? null)
+}
+
 /**
  * Bun global shim for Vitest (Node.js worker) environment.
  *
@@ -196,8 +225,7 @@ patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
 if (typeof globalThis.Bun === 'undefined') {
   // biome-ignore lint/suspicious/noExplicitAny: bun-types makes the Bun global too complex to satisfy without any
   ;(globalThis as any).Bun = {
-    // Keep bare date scalars as strings, matching Bun instead of js-yaml's Date coercion.
-    YAML: { parse: (text: string) => parseYaml(text, { schema: CORE_SCHEMA }) },
+    YAML: { parse: parseBunYaml },
     spawnSync: (
       cmd: string[],
       opts?: {

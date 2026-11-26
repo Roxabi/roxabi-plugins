@@ -1,53 +1,61 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import type { Component } from '@oh-my-pi/pi-tui'
-import type { DescribeContext, NativeNode, NativeScreen, NativeUiEvent } from '@oh-my-pi/pi-tui/native/node'
+import type { KeyEvent } from '@oh-my-pi/pi-tui'
+import { jsx } from '@oh-my-pi/pi-tui/element'
+import { nativeRendering, nativeSupports } from '@oh-my-pi/pi-tui/host'
+import { computed, onCleanup, signal as revisionSignal, structural } from '@oh-my-pi/pi-tui/reactive'
 import type { PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { nativeText } from './omp-operator-confirmation-field.ts'
 import { framingDetails } from './omp-operator-confirmation-framing.ts'
 import {
   type ConfirmationMotion,
   commitDialogInput,
-  commitNativeAct,
+  type DialogInput,
   type OperatorChoice,
   operatorDialogInput,
-  resetDetails,
 } from './omp-operator-confirmation-input.ts'
 import { operatorDialogLayout } from './omp-operator-confirmation-layout.ts'
 import { proposalSummary } from './omp-operator-confirmation-summary.ts'
 
-function nativeButton(label: string, act: string, key: string, buttons: boolean): NativeNode {
-  const title = `${label}  ${key === 'escape' ? 'esc' : key}`
-  if (buttons) {
-    // The locked 18.13 SDK predates the button kind; this is the 18.18 actionButton shape.
-    return {
-      k: 'button',
-      key: act,
-      p: {
+type NativeChoice = OperatorChoice | 'details'
+
+function nativeButton(
+  label: string | (() => string),
+  act: NativeChoice,
+  key: string,
+  choose: (act: NativeChoice) => void,
+) {
+  const shared = {
+    title: () => `${typeof label === 'function' ? label() : label}  ${key === 'escape' ? 'esc' : key}`,
+    actions: { click: act },
+    onAction: (action: string) => {
+      if (action === act) choose(act)
+    },
+  }
+  if (nativeSupports('button')) {
+    return jsx(
+      'button',
+      {
+        ...shared,
         role: 'omp.btn',
         text: label,
-        title,
         keys: [key],
-        actions: { click: act },
         ...(act === 'confirm' ? { tone: 'accent', variant: 'primary' } : {}),
         ...(act === 'refuse' ? { tone: 'error', variant: 'danger' } : {}),
       },
-    } as unknown as NativeNode
+      act,
+    )
   }
-  return {
-    k: 'row',
-    key: act,
-    p: {
+  return jsx(
+    'row',
+    {
+      ...shared,
       role: 'omp.btn',
       gap: 'xs',
       align: 'center',
-      title,
-      actions: { click: act },
+      children: [jsx('text', { text: label }), jsx('kbd', { keys: [key] })],
     },
-    c: [
-      { k: 'text', p: { text: label } },
-      { k: 'kbd', p: { keys: [key] } },
-    ],
-  }
+    act,
+  )
 }
 
 export async function showOperatorProposal(
@@ -63,146 +71,169 @@ export async function showOperatorProposal(
   if (proposal.format === 'omp-build-uw-framing/1')
     details.push(...framingDetails(proposal), '', 'Proposition exacte (JSON)')
   details.push(JSON.stringify(proposal, null, 2))
-  let abort: (() => void) | undefined
-  const cancelled = Promise.withResolvers<never>()
-  const rejectOnAbort = () => cancelled.reject(new Error('Confirmation cancelled'))
-  signal.addEventListener('abort', rejectOnAbort, { once: true })
-  try {
-    return await Promise.race([
-      ctx.ui.custom<OperatorChoice>(
-        (tui, _theme, keys, done) => {
-          if (signal.aborted) throw new Error('Confirmation cancelled')
-          const motion: ConfirmationMotion = {
-            selected: 2,
-            offset: 0,
-            maxOffset: 0,
-            height: 0,
-            technical: false,
-            scroll: undefined,
-          }
-          let width = 0
-          let terminalColumns = 0
-          let actionable = false
-          let closed = false
-          let nativeDescribed = false
-          let nativeColumns = 0
-          let nativeRows = 0
-          let nativeReady = false
-          const redraw = () => tui.requestRender()
-          const finish = (choice: OperatorChoice, cancelling = false) => {
-            if (closed || (signal.aborted && !cancelling)) return
-            closed = true
-            done(choice)
-          }
-          abort = () => finish('refuse', true)
-          signal.addEventListener('abort', abort, { once: true })
-          const nativeSizeReady = () => {
-            if (nativeColumns !== tui.terminal.columns) return false
-            if (nativeRows !== tui.terminal.rows) {
-              nativeRows = tui.terminal.rows
-              nativeReady = operatorDialogLayout(nativeColumns, nativeRows, motion.selected, 0, []).actionable
-            }
-            return nativeReady
-          }
-          const ready = () =>
-            !closed &&
-            !signal.aborted &&
-            (nativeDescribed
-              ? nativeSizeReady()
-              : actionable && terminalColumns === tui.terminal.columns && motion.height === tui.terminal.rows)
-          const toggleDetails = () => resetDetails(motion)
-          const noteNative = (cx: DescribeContext) => {
-            nativeDescribed = true
-            nativeColumns = cx.cols
-            nativeRows = tui.terminal.rows
-            nativeReady =
-              nativeColumns === tui.terminal.columns &&
-              operatorDialogLayout(nativeColumns, nativeRows, motion.selected, 0, []).actionable
-          }
-          const component: Component = {
-            render(columns: number) {
-              nativeDescribed = false
-              width = columns
-              motion.height = tui.terminal.rows
-              terminalColumns = tui.terminal.columns
-              const layout = operatorDialogLayout(
-                width,
-                motion.height,
-                motion.selected,
-                motion.offset,
-                motion.technical ? details : summary.slice(1),
-              )
-              actionable = layout.actionable
-              motion.offset = layout.offset
-              motion.maxOffset = layout.maxOffset
-              return layout.lines
-            },
-            describeScreen(cx: DescribeContext): NativeScreen {
-              noteNative(cx)
-              const body = (motion.technical ? details : summary.slice(1)).flatMap((line) => line.split('\n'))
-              const node: NativeNode = {
-                k: 'col',
-                key: 'body',
-                p: { role: 'omp.operator.confirmation.body' },
-                c: body.map((line, index) => ({
-                  k: 'text',
-                  key: String(index),
-                  p: { text: nativeText(line), wrap: 'word' },
-                })),
-                ...(motion.scroll ? { scroll: motion.scroll } : {}),
-              }
-              return { role: 'omp.operator.confirmation', main: [node], dock: [component] }
-            },
-            describe(cx: DescribeContext): NativeNode {
-              noteNative(cx)
-              // The running SDK supports button; the older locked types do not name it.
-              const buttons = (cx.supports as (kind: string) => boolean)('button')
-              return {
-                k: 'col',
-                p: { role: 'omp.editor.ask.confirmation', gap: 'sm' },
-                c: [
-                  { k: 'text', key: 'title', p: { text: nativeText(summary[0] ?? ''), tone: 'accent', wrap: 'word' } },
-                  {
-                    k: 'row',
-                    key: 'actions',
-                    p: { role: 'omp.actions', gap: 'sm', align: 'center', wrap: true },
-                    c: [
-                      nativeButton(`${motion.selected === 0 ? '› ' : ''}Confirmer`, 'confirm', 'c', buttons),
-                      nativeButton(`${motion.selected === 1 ? '› ' : ''}Refuser`, 'refuse', 'r', buttons),
-                      nativeButton(`${motion.selected === 2 ? '› ' : ''}Plus tard`, 'defer', 'escape', buttons),
-                      nativeButton('Détails', 'details', 'd', buttons),
-                    ],
-                  },
-                ],
-              }
-            },
-            handleNativeEvent(event: NativeUiEvent) {
-              if (event.type !== 'action' || !nativeDescribed || closed || signal.aborted) return
-              if (commitNativeAct(event.act, ready(), finish)) {
-                toggleDetails()
-                redraw()
-              }
-            },
-            handleInput(data: string) {
-              if (closed || signal.aborted) return
-              const input = operatorDialogInput(data, keys)
-              if (input === 'cancel') return finish('defer')
-              if (ready() && commitDialogInput(motion, input, finish)) redraw()
-            },
-            invalidate() {},
-            dispose() {
-              closed = true
-              if (abort) signal.removeEventListener('abort', abort)
-            },
-          }
-          return component
+  return ctx.ui.custom<OperatorChoice>(
+    (ui, _theme, keys, done) => {
+      const motion: ConfirmationMotion = {
+        selected: 2,
+        offset: 0,
+        maxOffset: 0,
+        height: 0,
+        technical: false,
+        scroll: undefined,
+      }
+      const revision = revisionSignal(0)
+      const technical = computed(() => {
+        revision()
+        return motion.technical
+      })
+      const selected = (index: number, label: string) => () => {
+        revision()
+        return `${motion.selected === index ? '› ' : ''}${label}`
+      }
+      const body = summary.slice(1)
+      let closed = false
+      let pasted = false
+      let renderedColumns: number | undefined
+      let nativeRenderedColumns: number | undefined
+      let actionable = false
+      const finish = (choice: OperatorChoice) => {
+        closed = true
+        done(choice)
+      }
+      const ready = (native: boolean) => {
+        const { columns, rows } = ui.size()
+        if ((native ? nativeRenderedColumns : renderedColumns) !== columns) return false
+        if (!native) return actionable && motion.height === rows
+        motion.height = rows
+        return operatorDialogLayout(columns, rows, motion.selected, 0, []).actionable
+      }
+      const input = (action: DialogInput, native: boolean) => {
+        if (closed || signal.aborted || action === 'none') return
+        if (action === 'cancel') finish('defer')
+        else if (ready(native) && commitDialogInput(motion, action, finish)) revision.update((n) => n + 1)
+      }
+      const onKey = (key: KeyEvent) => {
+        const action = operatorDialogInput(key, keys)
+        // The decoder only marks the first key in the paste read; require an explicit other action to rearm.
+        if (pasted && (action === 'confirm' || action === 'select')) return true
+        if (action !== 'none') pasted = false
+        input(action, nativeRendering())
+        return true
+      }
+      const onPaste = () => {
+        pasted = true
+        return true
+      }
+      const onNativeAction = (action: NativeChoice) => {
+        if (nativeRendering()) input(action === 'defer' ? 'cancel' : action, true)
+      }
+      const ansi = jsx('canvas', {
+        onKey,
+        onPaste,
+        paint(columns: number) {
+          revision()
+          const { rows } = ui.size()
+          renderedColumns = columns
+          motion.height = rows
+          const layout = operatorDialogLayout(
+            columns,
+            rows,
+            motion.selected,
+            motion.offset,
+            technical() ? details : body,
+          )
+          actionable = layout.actionable
+          motion.offset = layout.offset
+          motion.maxOffset = layout.maxOffset
+          return layout.lines
         },
-        { overlay: true, overlayOptions: { width: '100%', maxHeight: '100%', margin: 0, fullscreen: true } },
-      ),
-      cancelled.promise,
-    ])
-  } finally {
-    signal.removeEventListener('abort', rejectOnAbort)
-    if (abort) signal.removeEventListener('abort', abort)
-  }
+      })
+      if (!nativeRendering()) return ansi
+      const content = jsx(
+        'col',
+        {
+          role: 'omp.operator.confirmation.body',
+          scroll: () => {
+            if (!nativeRendering()) return undefined
+            revision()
+            return motion.scroll
+          },
+          children: () =>
+            nativeRendering()
+              ? (technical() ? details : body)
+                  .flatMap((line) => line.split('\n'))
+                  .map((line, index) => jsx('text', { text: nativeText(line), wrap: 'word' }, String(index)))
+              : [ansi],
+        },
+        'body',
+      )
+      const title = nativeText(summary[0] ?? '')
+      const dock = jsx(
+        'col',
+        {
+          role: 'omp.editor.ask.confirmation',
+          gap: 'sm',
+          children: [
+            jsx('text', { text: title, tone: 'accent', wrap: 'word' }, 'title'),
+            jsx(
+              'row',
+              {
+                role: 'omp.actions',
+                gap: 'sm',
+                align: 'center',
+                wrap: true,
+                children: [
+                  nativeButton(selected(0, 'Confirmer'), 'confirm', 'c', onNativeAction),
+                  nativeButton(selected(1, 'Refuser'), 'refuse', 'r', onNativeAction),
+                  nativeButton(selected(2, 'Plus tard'), 'defer', 'escape', onNativeAction),
+                  nativeButton('Détails', 'details', 'd', onNativeAction),
+                ],
+              },
+              'actions',
+            ),
+          ],
+        },
+        'dock',
+      )
+      const viewportGeneration = revisionSignal(0)
+      const viewport = structural(() => {
+        const generation = viewportGeneration()
+        let width: number | undefined
+        return jsx(
+          'canvas',
+          {
+            hidden: true,
+            paint(columns: number) {
+              if (generation !== viewportGeneration.peek()) return []
+              if (width !== undefined && width !== columns) {
+                // The old record repaints eagerly on resize. Only a new keyed record is
+                // first painted as part of reconciliation and necessarily emits an add op.
+                nativeRenderedColumns = undefined
+                viewportGeneration.set(generation + 1)
+              } else {
+                width = columns
+                nativeRenderedColumns = columns
+                onCleanup(() => {
+                  if (generation === viewportGeneration.peek()) nativeRenderedColumns = undefined
+                })
+              }
+              return []
+            },
+          },
+          `viewport-${generation}`,
+        )
+      })
+      // The host must see the page node itself to dock the actions and route focus inside it.
+      return jsx('overlay', {
+        size: 'full',
+        role: 'omp.sheet.bare',
+        page: { role: 'omp.operator.confirmation', dock: 1 },
+        onKey,
+        onPaste,
+        // Keep the focused body mounted when the optimistic Tern handshake falls back.
+        children: () => (nativeRendering() ? [content, viewport(), dock] : [content]),
+      })
+    },
+    { overlay: true, fullscreen: true, signal },
+  )
 }
