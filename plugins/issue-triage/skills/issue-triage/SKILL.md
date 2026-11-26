@@ -140,27 +140,19 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Caveat — keep refs fully-qualified:** `GITHUB_REPO` retargets the entire invocation. A bare `#N` in any ref resolves against the overridden repo, not the cwd repo → always use `OWNER/REPO#N` for any cross-repo ref when the env var is set.
 
-**Resolution order** (`detectGitHubRepo`): (1) `github_repo` in dev-core config ∨ `GITHUB_REPO` env var (validated as `owner/repo`) → (2) fallback `git remote get-url origin` of the cwd. When filing from an untrusted checkout, start the trusted CLI in its own directory with `--no-env-file` and pass the target as `GITHUB_REPO` (the operator's value when set, otherwise the checkout's `gh repo view`); do not read the checkout's `.dev/dev-core.yml` pin. Bun reads `bunfig.toml` and `.env` from its startup directory, so a checkout-controlled preload could otherwise run before triage.
+**Resolution order** (`detectGitHubRepo`): (1) `GITHUB_REPO` env → (2) `github_repo` in `.dev/dev-core.yml` → (3) `git remote get-url origin` → (4) `gh repo view` only if origin is absent. Pins must be `owner/repo`. An existing origin must address a GitHub repository (SSH aliases are evaluated against local SSH configuration); a non-GitHub, local, or malformed origin is refused without printing it. With multiple remotes, the CLI explains a disagreement with `gh repo view` and keeps origin. Single-remote clones stay quiet. Repo identity comparisons ignore case without rewriting the chosen spelling.
+
+When filing from an untrusted checkout, explicitly select the intended `owner/repo` as `GITHUB_REPO` and start the trusted CLI in its own directory with `--no-env-file`. Do not use the untrusted checkout's `.dev/dev-core.yml` pin. Bun can load a checkout-controlled preload from `bunfig.toml` when started in that checkout.
 
 ## Complexity Scoring
 
-Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by replacing an existing marker, or appending one, through `set --body-file`. A failed or empty read must not write. The read and the write use the same non-empty repo slug (env, then `.dev/dev-core.yml` `github_repo`, then the cwd). An empty slug must abort before `gh issue view`: that command ignores an empty repo flag and exits 0 against the cwd.
+Assess κ ∈ [1,10] to inform tier (S / F-lite / F-full). Record by replacing an existing marker, or appending one, through `set --body-file`. In a trusted checkout, `T repo` uses the resolution order above without probing `gh repo view` if origin exists. Pin both the read and the write to its result. Failed resolution or a failed or empty body read must not write.
 
 ```bash
 set -euo pipefail
 N=<number>
 SCORE=<score>
-REPO="${GITHUB_REPO:-}"
-if [ -z "$REPO" ] && [ -f .dev/dev-core.yml ]; then
-  REPO=$(sed -n "s/^github_repo:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}[[:space:]]*$/\1/p" .dev/dev-core.yml | head -n 1)
-fi
-if [ -z "$REPO" ]; then
-  REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-fi
-if [ -z "$REPO" ]; then
-  echo "Error: empty repo; refusing to read one repo and write another" >&2
-  exit 1
-fi
+REPO=$(T repo)
 BODY=$(gh issue view "$N" --repo "$REPO" --json body --jq .body) || exit 1
 if [ "$BODY" = "null" ]; then
   BODY=""

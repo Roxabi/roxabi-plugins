@@ -299,6 +299,7 @@ set -u
 printf '%s\\t%s\\t%s\\n' "$(pwd -P)" "\${ENV_SENTINEL:-}" "$*" >> "$GH_LOG"
 case "$1 \${2:-}" in
   "repo view")
+    if [ "\${GH_REPO_SLUG+x}" ]; then printf '%s\\n' "$GH_REPO_SLUG"; exit 0; fi
     url=$(git remote get-url origin 2>/dev/null) || { echo "gh: no git remote here" >&2; exit 1; }
     url=\${url%.git}; printf '%s\\n' "\${url#https://github.com/}" ;;
   "api graphql")

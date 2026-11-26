@@ -15,39 +15,22 @@ import { ConfigError } from '../domain/errors'
  */
 const DEV_CORE_YML = '.dev/dev-core.yml'
 
-/**
- * Load a config value with a 3-tier chain:
- *   1st: process.env[envKey] (explicit override — checked first)
- *   2nd: `.dev/dev-core.yml` (committed contract pin, YAML key lookup)
- *   3rd: gh CLI auto-detect (github_repo only)
- * detectGitHubRepo() adds a last-resort `git remote get-url origin` probe.
- */
-function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
-  const envValue = process.env[envKey ?? key.toUpperCase()]
-  if (envValue) return envValue
+function repoPin(): string | undefined {
+  if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
 
   try {
     const yaml = readFileSync(DEV_CORE_YML, 'utf-8')
-    const match = yaml.match(new RegExp(`^${key}:\\s*['"]?(.+?)['"]?\\s*$`, 'm'))
-    const value = match?.[1]
-    if (value && value !== "''") return value
-  } catch {
-    /* file not found — fall through */
-  }
-
-  if (key === 'github_repo') {
-    try {
-      const proc = Bun.spawnSync(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
-    } catch {
-      /* gh not available */
+    const value = yaml.match(/^github_repo:[ \t]*([^\r\n]*)/m)?.[1].trim()
+    if (!value) return undefined
+    const quote = value[0]
+    if ((quote === "'" || quote === '"') && value.endsWith(quote) && value.length > 1) {
+      return value.slice(1, -1) || undefined
     }
+    return value
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return undefined
   }
-
-  return undefined
 }
 
 /**
@@ -59,37 +42,78 @@ function loadDevCoreConfig(key: string, envKey?: string): string | undefined {
  */
 export const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-/**
- * Validate a candidate GitHub repo slug and throw a clear error if it doesn't match.
- * Used by both the yaml/env path and the git-remote fallback in detectGitHubRepo().
- */
-function assertValidRepoSlug(value: string): string {
-  if (!REPO_SLUG_RE.test(value)) {
-    throw new ConfigError(
-      `Invalid GitHub repo "${value}". Expected "owner/repo" format ` +
-        '(set github_repo in dev-core config or the GITHUB_REPO env var).',
-    )
-  }
-  return value
+export function sameGitHubRepo(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase()
 }
 
-export function detectGitHubRepo(): string {
-  const fromYamlOrEnv = loadDevCoreConfig('github_repo', 'GITHUB_REPO')
-  if (fromYamlOrEnv) {
-    // Guard the yaml/env path: callers do `detectGitHubRepo().split('/')` and
-    // expect `owner/repo`. A bare value (e.g. `GITHUB_REPO=myrepo`) would slip
-    // through as a silent `undefined` repo → malformed GraphQL. Fail loud here.
-    return assertValidRepoSlug(fromYamlOrEnv)
-  }
+function commandOutput(args: string[]): string | undefined {
   try {
-    const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], { stdout: 'pipe', stderr: 'pipe' })
-    const url = new TextDecoder().decode(proc.stdout).trim()
-    // SSH: git@github.com:owner/repo.git  |  HTTPS: https://github.com/owner/repo.git
-    const match = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)
-    // Validate the extracted candidate — a malformed remote must not silently
-    // return a bad slug that callers would split('/') into garbage GraphQL args.
-    if (match?.[1]) return assertValidRepoSlug(match[1])
-  } catch {}
+    const proc = Bun.spawnSync(args, { stdout: 'pipe', stderr: 'pipe' })
+    if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
+  } catch {
+    // A missing executable cannot establish repository identity.
+  }
+}
+
+function ghRepo(): string | undefined {
+  const repo = commandOutput(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
+  return repo && REPO_SLUG_RE.test(repo) ? repo : undefined
+}
+
+function originRepo(url: string): string | undefined {
+  // Parse the authority as well as the path: a foreign host can also use owner/repo.
+  const uri = /^(https?|git|ssh):\/\/(?:([^/@:]+)(?::[^/@]*)?@)?([a-z0-9_][a-z0-9._-]*)(?::(\d+))?\/(.+)$/i.exec(url)
+  const scp = uri ? null : /^(?:([^/@:]+)@)?([a-z0-9_][a-z0-9._-]*):([^/].*)$/i.exec(url)
+  const host = uri?.[3] ?? scp?.[2]
+  const pathname = uri?.[5] ?? scp?.[3]
+  const repo = pathname?.replace(/\/$/, '').replace(/\.git$/, '')
+  if (!host || !repo || !REPO_SLUG_RE.test(repo)) return undefined
+
+  if (uri && uri[1].toLowerCase() !== 'ssh') return host.toLowerCase() === 'github.com' ? repo : undefined
+
+  // Ask OpenSSH about the effective host without opening an SSH connection.
+  // Disable DNS canonicalization; normal Host -> HostName aliases still apply.
+  const args = ['ssh', '-G', '-o', 'CanonicalizeHostname=no']
+  const user = uri?.[2] ?? scp?.[1]
+  const port = uri?.[4]
+  if (user) args.push('-l', user)
+  if (port) args.push('-p', port)
+  args.push('--', host)
+  const effectiveHost = commandOutput(args)
+    ?.match(/^hostname[ \t]+(\S+)$/m)?.[1]
+    .toLowerCase()
+  return effectiveHost === 'github.com' || effectiveHost === 'ssh.github.com' ? repo : undefined
+}
+
+export function detectGitHubRepo({ notice = true } = {}): string {
+  const pin = repoPin()
+  if (pin) {
+    if (REPO_SLUG_RE.test(pin)) return pin
+    throw new ConfigError('Invalid GitHub repo pin. Expected "owner/repo" in GITHUB_REPO or .dev/dev-core.yml.')
+  }
+
+  const url = commandOutput(['git', 'remote', 'get-url', 'origin'])
+  const remotes = url === undefined || notice ? commandOutput(['git', 'remote'])?.split('\n') : undefined
+  if (url !== undefined || remotes?.includes('origin')) {
+    const repo = url && originRepo(url)
+    if (!repo) {
+      throw new ConfigError(
+        'Cannot use git remote "origin": expected a github.com owner/repo remote. Set GITHUB_REPO or github_repo explicitly.',
+      )
+    }
+    // Never use gh to choose a target when origin exists. In a multi-remote
+    // checkout its independent answer is useful only to explain a disagreement.
+    if (notice && remotes && remotes.length > 1) {
+      const gh = ghRepo()
+      if (gh && !sameGitHubRepo(gh, repo)) {
+        console.error(`Using ${repo} from git remote "origin"; preferring origin over gh repo view (${gh}).`)
+      }
+    }
+    return repo
+  }
+
+  const fallback = ghRepo()
+  if (fallback) return fallback
   throw new ConfigError(
     'Cannot detect GitHub repo. Set GITHUB_REPO env var or ensure git remote "origin" is configured.',
   )

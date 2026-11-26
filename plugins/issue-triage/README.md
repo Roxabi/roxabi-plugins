@@ -50,6 +50,8 @@ Run the `issue-triage` skill's CLI: `init [--dry-run] [--repo owner/repo] [--roo
 
 Importing the tracker adapters does not discover a repository. Calls with explicit repository coordinates use them directly; standalone calls that need a default resolve it at use time and report a missing configuration then. Each `create`, `set`, or `list` invocation resolves any needed implicit repository once and uses it for the whole operation; fully qualified references keep their own coordinates.
 
+The default repository is selected in this order: `GITHUB_REPO`, `.dev/dev-core.yml` `github_repo`, the GitHub `origin` (including GitHub SSH aliases), then `gh repo view` only if origin is absent. A foreign, local, or unusable origin requires an explicit pin. In a multi-remote checkout the CLI explains when origin takes precedence over a different `gh repo view` result; `repo` prints only the selected target for recipes, without checking for disagreement.
+
 Contract-path confinement resolves every ancestor and final symlink. External physical contract destinations, non-directory ancestors, cycles and chains exceeding 40 symlink expansions are refused before GitHub or contract writes. Missing internal targets retain their full path and are created at the resolved physical destination. The original contract path is rechecked after creating its physical parent; this is not atomic protection against concurrent filesystem changes.
 
 A trailing slash on an internal directory ancestor is allowed, including when that directory must be created. A final contract target ending in `/` or `/.` is directory-required and is refused: the contract must remain a usable file.
@@ -64,7 +66,7 @@ An existing final target must be a regular file. A special file such as a FIFO i
 
 Cross-repo: prefix `GITHUB_REPO=<owner/repo>`, and use fully-qualified `OWNER/REPO#N` refs when that env is set. `set --rm-parent` resolves the actual parent and prints `RemovedParent=OWNER/REPO#N`; it never rebinds the parent's number to the subject repository. The shared lookup helper is `getParentRef`, returning the complete reference or `null`.
 
-Filing from a checkout you do not trust (a PR under review): start Bun in this skill's directory with `--no-env-file`, the target in `GITHUB_REPO` (yours when exported, else the checkout's `gh repo view`, never the checkout's `.dev/dev-core.yml` pin) and absolute `--title-file` / `--body-file` paths. Bun reads `bunfig.toml` and `.env` from its startup directory, so a preload committed in the checkout would otherwise run first.
+Filing from a checkout you do not trust (a PR under review): explicitly select the intended `owner/repo` in `GITHUB_REPO` and start Bun in this skill's trusted directory with `--no-env-file` and absolute `--title-file` / `--body-file` paths. Do not take the pin from the checkout's `.dev/dev-core.yml`. Bun can run a preload from `bunfig.toml` in its startup directory.
 
 Startup separation assumes the resolved CLI and its directory are operator-trusted. A normal installed cache is separate from the candidate checkout; a development link into candidate-controlled source does not establish that trust boundary. This launcher is not a validator or sandbox for the CLI it resolves.
 
