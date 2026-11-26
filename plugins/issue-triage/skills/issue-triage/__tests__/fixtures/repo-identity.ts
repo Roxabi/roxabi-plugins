@@ -63,7 +63,13 @@ export const invalidRepoYaml = [
   ['escaped pin key spelling', '"github\\u005frepo": Pin/yaml\n'],
   ['mixed literal and escaped pin keys', 'github_repo: Pin/first\n"github\\u005frepo": Pin/second\n'],
   ['duplicate keys defined via an alias', 'key_name: &name github_repo\n? *name\n: Pin/first\n? *name\n: Pin/second\n'],
-  ['duplicate key via a merge', 'base: &base { github_repo: Pin/first }\n<<: *base\ngithub_repo: Pin/second\n'],
+  [
+    'duplicate keys use an alias with a non-breaking space',
+    'key_name: &na\u00a0me github_repo\n? *na\u00a0me\n: Pin/first\n? *na\u00a0me\n: Pin/second\n',
+  ],
+  ['the pin key is an alias', 'key_name: &name github_repo\n? *name\n: Pin/yaml\n'],
+  ['the pin value is an alias', 'target: &pin Pin/yaml\ngithub_repo: *pin\n'],
+  ['the pin only comes from a merge', 'base: &base { github_repo: Pin/yaml }\n<<: *base\n'],
 ] as const
 
 export const validPinYaml = [
@@ -79,6 +85,13 @@ export const validPinYaml = [
     'Pin/yaml',
   ],
   ['a quoted pin has an inline comment', 'github_repo: "Pin/yaml" # this is github_repo\n', 'Pin/yaml'],
+  ['a comment mentions anchor and alias syntax', '# &pin and *pin are examples\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
+  ['a quoted value mentions YAML aliases', 'notes: "&pin and *pin are examples"\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
+  [
+    'a literal pin overrides a merge',
+    'base: &base { github_repo: Pin/first }\n<<: *base\ngithub_repo: Pin/second\n',
+    'Pin/second',
+  ],
   ['the pin value contains the key', 'github_repo: Pin/github_repo\n', 'Pin/github_repo'],
   ['a URL contains an ampersand', 'notes: https://example.com/?a=1&b=2\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
   ['the usual sentinel is already a mapping key', 'triage00000: Pin/unused\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],

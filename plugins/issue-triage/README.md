@@ -52,7 +52,7 @@ Importing the tracker adapters does not discover a repository. Calls with explic
 
 The default repository is selected in this order: `GITHUB_REPO`, `.dev/dev-core.yml` `github_repo`, the GitHub `origin` (including GitHub SSH aliases), then `gh repo view` only if origin is absent. A foreign, local, or unusable origin requires an explicit pin. In a multi-remote checkout the CLI explains when origin takes precedence over a different `gh repo view` result; `repo` prints only the selected target for recipes, without checking for disagreement.
 
-A `github_repo` pin must use one literal key in a single YAML mapping. A matching YAML anchor/alias pair anywhere in the file, including a merge, makes the pin ambiguous. Use `GITHUB_REPO` instead if the config needs aliases.
+A `github_repo` pin must use one literal key in a single YAML mapping. A pin that depends on a YAML alias is refused; use a literal pin or set `GITHUB_REPO` instead.
 
 SSH origins use the effective host reported by a bounded `ssh -G` probe, like `gh`. The probe may resolve DNS if your SSH configuration canonicalizes hostnames. Git's custom SSH commands and profiles are not consulted; pin the repo explicitly if an alias depends on them. Without `ssh`, only literal GitHub SSH hosts work.
 

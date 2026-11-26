@@ -36,23 +36,6 @@ function parseRepoConfig(yaml: string): Record<string, unknown> | undefined {
   return document as Record<string, unknown>
 }
 
-function hasYamlAnchorReference(yaml: string): boolean {
-  if (!yaml.includes('&') || !yaml.includes('*')) return false
-  const anchors = new Set<string>()
-  const aliases = new Set<string>()
-  // Anchor and alias names end at whitespace or a YAML flow delimiter.
-  for (const [, marker, name] of yaml.matchAll(/([&*])([^\s,[\]{}]+)/g)) {
-    if (marker === '&') {
-      if (aliases.has(name)) return true
-      anchors.add(name)
-    } else {
-      if (anchors.has(name)) return true
-      aliases.add(name)
-    }
-  }
-  return false
-}
-
 function repoPin(): unknown {
   if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
 
@@ -67,12 +50,22 @@ function repoPin(): unknown {
   const key = 'github_repo'
   const document = parseRepoConfig(yaml)
   if (!document || !Object.hasOwn(document, key)) return undefined
-  if (hasYamlAnchorReference(yaml)) {
-    throw new ConfigError(
-      `Ambiguous github_repo in ${DEV_CORE_YML}: YAML anchor references (including merges) are unsupported. Set GITHUB_REPO or remove them.`,
-    )
-  }
   const value = document[key]
+
+  // Disable YAML alias syntax before proving the pin's literal spelling.
+  // A pin that depends on an alias cannot survive with the same value.
+  const neutral = yaml.replaceAll('*', 'x')
+  let neutralDocument: Record<string, unknown> | undefined = document
+  if (neutral !== yaml) {
+    try {
+      neutralDocument = parseRepoConfig(neutral)
+    } catch {
+      neutralDocument = undefined
+    }
+  }
+  if (!neutralDocument || !Object.hasOwn(neutralDocument, key) || !Object.is(neutralDocument[key], value)) {
+    throw new ConfigError(`Alias-dependent github_repo in ${DEV_CORE_YML}. Set GITHUB_REPO or use a literal pin.`)
+  }
 
   // Bun silently overwrites duplicate YAML keys. Find the unique spelling
   // whose rename moves the parsed key without changing its value.
@@ -81,13 +74,13 @@ function repoPin(): unknown {
   do {
     sentinel = `triage${suffix.toString(36).padStart(5, '0')}`
     suffix += 1
-  } while (yaml.includes(sentinel) || Object.hasOwn(document, sentinel))
+  } while (neutral.includes(sentinel) || Object.hasOwn(neutralDocument, sentinel))
 
   let keyMatches = 0
-  for (const { index } of yaml.matchAll(/(?<![A-Za-z0-9_-])github_repo(?![A-Za-z0-9_-])/g)) {
+  for (const { index } of neutral.matchAll(/(?<![A-Za-z0-9_-])github_repo(?![A-Za-z0-9_-])/g)) {
     let renamed: Record<string, unknown> | undefined
     try {
-      renamed = parseRepoConfig(`${yaml.slice(0, index)}${sentinel}${yaml.slice(index + key.length)}`)
+      renamed = parseRepoConfig(`${neutral.slice(0, index)}${sentinel}${neutral.slice(index + key.length)}`)
     } catch {
       continue
     }
