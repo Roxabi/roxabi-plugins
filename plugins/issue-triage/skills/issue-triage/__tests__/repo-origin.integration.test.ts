@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type GitHubFake, ghCalls, REAL_BUN, recipeEnv, run, startGitHub, writeGh } from './fixtures/github-api'
@@ -133,47 +133,37 @@ describe('origin-first tracker discovery (#614)', () => {
     },
   )
 
-  it('uses the SSH profile configured in core.sshCommand and honors GIT_SSH_COMMAND above it', async () => {
+  it('refuses an alias configured only through core.sshCommand without executing that command', async () => {
     const fixture = setup({ origin: 'git@profile-only:Acme/product.git', single: true })
-    const profile = join(fixture.root, 'work profile')
+    const marker = join(fixture.root, 'profile-ran')
     const ssh = join(fixture.bin, 'profile-ssh')
-    writeFileSync(
-      ssh,
-      `#!/bin/sh
-[ "$1" = -F ] && [ "$2" = "$EXPECTED_PROFILE" ] && [ "$3" = -G ] || exit 92
-for host; do :; done
-[ "$host" = profile-only ] || exit 93
-printf 'hostname github.com\\n'
-`,
-      { mode: 0o755 },
-    )
-    const command = `${JSON.stringify(ssh)} -F ${JSON.stringify(profile)}`
+    writeFileSync(ssh, '#!/bin/sh\ntouch "$SSH_MARKER"\nprintf "hostname github.com\\n"\n', { mode: 0o755 })
+    const command = `${JSON.stringify(ssh)} -F work-profile`
     execFileSync('git', ['config', 'core.sshCommand', command], { cwd: fixture.cwd, env: fixture.env, stdio: 'pipe' })
-    fixture.env.EXPECTED_PROFILE = profile
-    fixture.env.GIT_SSH = '/not-the-configured-program'
-    const local = await resolveRepo(fixture)
-    expect(local.code).toBe(0)
-    expect(local.stdout.trim()).toBe(PRODUCT)
-
-    fixture.env.GIT_SSH_COMMAND = 'false'
-    const overridden = await resolveRepo(fixture)
-    expect(overridden.code).not.toBe(0)
-    expect(overridden.stderr).toContain('Set GITHUB_REPO or github_repo')
+    fixture.env.SSH_MARKER = marker
+    const result = await resolveRepo(fixture)
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('Set GITHUB_REPO or github_repo')
+    expect(existsSync(marker)).toBe(false)
     expect(repoProbes(fixture)).toEqual([])
   })
 
-  it('uses GIT_SSH as a program and refuses an explicitly non-OpenSSH variant', async () => {
-    const fixture = setup({ origin: 'git@github-work:Acme/product.git', single: true })
-    fixture.env.GIT_SSH = join(fixture.bin, 'ssh program with spaces')
-    symlinkSync(join(fixture.bin, 'ssh'), fixture.env.GIT_SSH)
-    const supported = await resolveRepo(fixture)
-    expect(supported.code).toBe(0)
-    expect(supported.stdout.trim()).toBe(PRODUCT)
+  it('uses plain SSH even when Git SSH command and variant settings are present', async () => {
+    const fixture = setup(
+      { origin: 'git@github-work:Acme/product.git', single: true },
+      { GIT_SSH_COMMAND: 'false', GIT_SSH: '/not-an-ssh-program', GIT_SSH_VARIANT: 'plink' },
+    )
+    const result = await resolveRepo(fixture)
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe(PRODUCT)
+  })
 
-    fixture.env.GIT_SSH_VARIANT = 'plink'
-    const refused = await resolveRepo(fixture)
-    expect(refused.code).not.toBe(0)
-    expect(refused.stderr).toContain('Set GITHUB_REPO or github_repo')
+  it('refuses a literal github.com SSH origin if the effective host is foreign', async () => {
+    const fixture = setup({ origin: 'git@github.com:Acme/product.git' })
+    writeFileSync(join(fixture.bin, 'ssh'), '#!/bin/sh\nprintf "hostname gitlab.com\\n"\n')
+    const result = await resolveRepo(fixture)
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('Set GITHUB_REPO or github_repo')
     expect(repoProbes(fixture)).toEqual([])
   })
 
@@ -192,14 +182,28 @@ printf 'hostname github.com\\n'
     },
   )
 
-  it('times out a stalled SSH alias probe and refuses without calling gh', async () => {
+  it('times out a stalled SSH alias probe, terminates its descendant, and does not call gh', async () => {
     const fixture = setup({ origin: 'git@github-work:Acme/product.git' })
-    writeFileSync(join(fixture.bin, 'ssh'), '#!/bin/sh\nexec sleep 30\n')
+    const pidFile = join(fixture.root, 'ssh-child.pid')
+    fixture.env.CHILD_PID_FILE = pidFile
+    writeFileSync(join(fixture.bin, 'ssh'), '#!/bin/sh\nsleep 30 &\nprintf "%s\\n" "$!" > "$CHILD_PID_FILE"\nwait\n')
     const result = await resolveRepo(fixture)
     expect(result.signal).toBeNull()
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('Set GITHUB_REPO or github_repo')
     expect(repoProbes(fixture)).toEqual([])
+    const pid = readFileSync(pidFile, 'utf8').trim()
+    const child = spawnSync('ps', ['-o', 'stat=', '-p', pid], { encoding: 'utf8' })
+    if (child.status === 0) expect(child.stdout.trim()).toMatch(/^Z/)
+  })
+
+  it('keeps origin without a disagreement notice when gh repo view times out', async () => {
+    const fixture = setup()
+    writeFileSync(join(fixture.bin, 'gh'), '#!/bin/sh\nexec sleep 30\n')
+    const result = await resolveRepo(fixture)
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe(PRODUCT)
+    expect(result.stderr).toBe('')
   })
 
   it.each(supportedOrigins)('resolves %s as a GitHub repository', async (_name, origin) => {

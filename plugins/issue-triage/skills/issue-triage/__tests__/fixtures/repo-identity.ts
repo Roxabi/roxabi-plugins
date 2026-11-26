@@ -32,6 +32,7 @@ export const refusedOrigins = [
   ['question mark before a GitHub-looking userinfo suffix', `https://user:${CREDENTIAL}?x@github.com/Acme/product.git`],
   ['fragment before a GitHub-looking userinfo suffix', `https://user:${CREDENTIAL}#x@github.com/Acme/product.git`],
   ['GitHub HTTPS path normalized to a different path', 'https://github.com/wrong/../Acme/product.git'],
+  ['GitHub HTTPS origin with surrounding whitespace', ' https://github.com/Acme/product.git '],
 ] as const
 
 export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string }

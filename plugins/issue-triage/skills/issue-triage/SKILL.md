@@ -142,7 +142,7 @@ Cross-repo **relations** (`--blocked-by`, `--blocks`, `--parent`, `--add-child`)
 
 **Resolution order** (`detectGitHubRepo`): (1) `GITHUB_REPO` env → (2) `github_repo` in `.dev/dev-core.yml` → (3) `git remote get-url origin` → (4) `gh repo view` only if origin is absent. Pins must be `owner/repo`. An existing origin must address a GitHub repository (SSH aliases are evaluated against local SSH configuration); a non-GitHub, local, or malformed origin is refused without printing it. With multiple remotes, the CLI explains a disagreement with `gh repo view` and keeps origin. Single-remote clones stay quiet. Repo identity comparisons ignore case without rewriting the chosen spelling.
 
-Like Git and `gh`, alias discovery evaluates your configured SSH command and its local SSH configuration. Literal GitHub hosts do not need SSH discovery.
+Like `gh`, SSH origin discovery uses plain `ssh -G` and evaluates its local SSH configuration, even for literal GitHub hosts. If `ssh` is not installed, only literal GitHub SSH hosts work. Git's custom SSH commands and profiles are not consulted; use a repo pin if you rely on one.
 
 When filing from an untrusted checkout, explicitly select the intended `owner/repo` as `GITHUB_REPO` and start the trusted CLI in its own directory with `--no-env-file`. Do not use the untrusted checkout's `.dev/dev-core.yml` pin. Bun can load a checkout-controlled preload from `bunfig.toml` when started in that checkout.
 

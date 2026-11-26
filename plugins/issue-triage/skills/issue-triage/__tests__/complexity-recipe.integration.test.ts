@@ -146,10 +146,16 @@ describe('complexity scoring recipe', () => {
       const github = await startGitHub(root, [`${PRODUCT}#42`])
       try {
         const log = join(root, 'gh.log')
+        const publicAuth = 'public-fixture-token'
         writeFileSync(
           join(bin, 'gh'),
           `#!/bin/sh
 printf '%s\\n' "$*" >> "$RECIPE_GH_LOG"
+if [ "$1 $2" = 'auth token' ]; then
+  [ "$*" = 'auth token --hostname github.com' ] || exit 95
+  echo '${publicAuth}'
+  exit 0
+fi
 [ "$1 $2 $3" = 'issue view 42' ] || exit 94
 if [ "$4 $5" = '--repo github.com/${PRODUCT}' ]; then
   echo 'public body'
@@ -166,11 +172,17 @@ fi
           RECIPE_GH_LOG: log,
           TRIAGE: triage,
         })
+        delete env.GITHUB_TOKEN
         const result = await run(recipeSource(), cwd, env)
         expect(result.code, result.stderr).toBe(0)
-        expect(readFileSync(log, 'utf8')).toContain(`issue view 42 --repo github.com/${PRODUCT}`)
+        expect(readFileSync(log, 'utf8').split('\n').filter(Boolean)).toEqual([
+          `issue view 42 --repo github.com/${PRODUCT} --json body --jq .body`,
+          'auth token --hostname github.com',
+        ])
         expect(github.issues.get(`${PRODUCT}#42`)?.body).toBe('public body\n\n<!-- complexity: 4 -->\n')
-        expect(github.calls).toMatchObject([{ method: 'PATCH', path: `/repos/${PRODUCT}/issues/42` }])
+        expect(github.calls).toMatchObject([
+          { method: 'PATCH', path: `/repos/${PRODUCT}/issues/42`, authorization: ['Bearer', publicAuth].join(' ') },
+        ])
       } finally {
         await github.close()
       }

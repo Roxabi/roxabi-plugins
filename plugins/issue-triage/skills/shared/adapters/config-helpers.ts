@@ -3,6 +3,7 @@
  * These are used by EnvConfigAdapter and re-exported from config.ts for backward compat.
  */
 
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { ConfigError } from '../domain/errors'
 
@@ -50,42 +51,64 @@ export function sameGitHubRepo(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
 }
 
-function commandOutput(
-  args: string[],
-  options?: Pick<Bun.SpawnOptions.SpawnSyncOptions<'ignore', 'pipe', 'pipe'>, 'env' | 'timeout' | 'killSignal'>,
-): string | undefined {
+function commandOutput(args: string[]): string | undefined {
   try {
-    const proc = Bun.spawnSync(args, { stdout: 'pipe', stderr: 'pipe', ...options })
-    if (proc.exitCode === 0) return new TextDecoder().decode(proc.stdout).trim()
+    const proc = Bun.spawnSync(args, { stdout: 'pipe', stderr: 'pipe' })
+    if (proc.exitCode !== 0) return undefined
+    const output = new TextDecoder().decode(proc.stdout)
+    // Remove the command's line terminator, not whitespace in a Git URL.
+    return output.endsWith('\n') ? output.slice(0, -1) : output
   } catch {
     // A missing executable cannot establish repository identity.
   }
 }
 
+function probeOutput(command: string, args: string[], env = process.env): string | undefined {
+  // Bun honors detached for synchronous children; Node's declarations omit it.
+  const options = {
+    detached: true,
+    encoding: 'utf8' as const,
+    env,
+    killSignal: 'SIGKILL' as const,
+    timeout: 5_000,
+  }
+  const proc = spawnSync(command, args, options)
+  if (proc.error && proc.pid > 0) {
+    // spawnSync only kills its direct child on timeout. Clean up its group
+    // too, including an SSH Match exec helper that outlived the probe.
+    try {
+      process.kill(-proc.pid, 'SIGKILL')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    }
+  }
+  return proc.status === 0 ? proc.stdout.trim() : undefined
+}
+
 function ghRepo(): string | undefined {
-  const repo = commandOutput(['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
-    env: { ...process.env, GH_HOST: 'github.com' },
+  const repo = probeOutput('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], {
+    ...process.env,
+    GH_HOST: 'github.com',
   })
   return repo && REPO_SLUG_RE.test(repo) ? repo : undefined
 }
 
 function sshHostname(host: string, user?: string, port?: string): string | undefined {
-  const variant = process.env.GIT_SSH_VARIANT ?? commandOutput(['git', 'config', '--get', 'ssh.variant'])
-  if (variant && variant !== 'ssh' && variant !== 'auto') return undefined
-  const command = process.env.GIT_SSH_COMMAND ?? commandOutput(['git', 'config', '--get', 'core.sshCommand'])
-  // As in Git, only GIT_SSH_COMMAND and core.sshCommand are shell commands.
-  const args = command === undefined ? [process.env.GIT_SSH ?? 'ssh'] : ['sh', '-c', `${command} "$@"`, 'sh']
-  // Evaluate the configured host alias without opening an SSH connection or canonicalizing via DNS.
-  args.push('-G', '-o', 'CanonicalizeHostname=no')
+  // Like gh, consult OpenSSH directly, never Git's potentially checkout-local
+  // command configuration. If ssh is unavailable, only literal hosts work.
+  const ssh = Bun.which('ssh')
+  if (!ssh) return host
+  const args = ['-G']
   if (user) args.push('-l', user)
   if (port) args.push('-p', port)
   args.push('--', host)
-  return commandOutput(args, { timeout: 5_000, killSignal: 'SIGKILL' })
+  return probeOutput(ssh, args)
     ?.match(/^hostname[ \t]+(\S+)$/m)?.[1]
     .toLowerCase()
 }
 
 function originRepo(url: string): string | undefined {
+  if (url !== url.trim()) return undefined
   let host: string | undefined
   let path: string | undefined
   let user: string | undefined
@@ -111,8 +134,8 @@ function originRepo(url: string): string | undefined {
   const repo = path?.replace(/\/$/, '').replace(/\.git$/, '')
   if (!host || !repo || !REPO_SLUG_RE.test(repo)) return undefined
   host = host.toLowerCase()
-  if (host === 'github.com' || (ssh && host === 'ssh.github.com')) return repo
-  if (!ssh || !/^[a-z0-9_][a-z0-9._-]*$/.test(host)) return undefined
+  if (!ssh) return host === 'github.com' ? repo : undefined
+  if (!/^[a-z0-9_][a-z0-9._-]*$/.test(host)) return undefined
   const effectiveHost = sshHostname(host, user, port)
   return effectiveHost === 'github.com' || effectiveHost === 'ssh.github.com' ? repo : undefined
 }
