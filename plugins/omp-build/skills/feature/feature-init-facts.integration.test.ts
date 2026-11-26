@@ -213,13 +213,17 @@ describe('feature init installed layout', () => {
     ).toBe(true)
   })
 
-  it('uses an explicit adapter repository without ambient discovery and diagnoses a missing default on use', () => {
+  const triageRoots = [
+    ['source', ISSUE_TRIAGE_SRC],
+    ['vendored', path.join(PLUGIN_ROOT, 'dist/issue-triage')],
+  ] as const
+  it.each(triageRoots)('uses an explicit organization profile repo in the %s adapter', (_kind, triageRoot) => {
     root = mkdtempSync(path.join(tmpdir(), 'omp-init-explicit-repo-'))
     const argv = [
       'label',
       'list',
       '--repo',
-      'github.com/acme/app',
+      'github.com/github/.github',
       '--limit',
       '500',
       '--json',
@@ -228,10 +232,10 @@ describe('feature init installed layout', () => {
       '.[].name',
     ]
     const gh = hermeticGh(root, { argv, body: 'size:S\n' })
-    const adapter = path.join(ISSUE_TRIAGE_SRC, 'skills/shared/adapters/github-adapter.ts')
+    const adapter = path.join(triageRoot, 'skills/shared/adapters/github-adapter.ts')
     const driver = `
       const { listLabelNames } = await import(process.argv[1])
-      console.log(JSON.stringify(await listLabelNames('github.com/acme/app')))
+      console.log(JSON.stringify(await listLabelNames('github.com/github/.github')))
       try { await listLabelNames(); process.exitCode = 1 }
       catch (error) { console.log(error.message) }
     `

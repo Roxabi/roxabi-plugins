@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -18,6 +19,10 @@ async function world() {
   root = mkdtempSync(path.join(tmpdir(), 'triage-repo-consistency-'))
   fake = await startGitHub(root, ['Upstream/app#70', 'Upstream/app#80', 'Fork/app#70', 'Fork/app#80'])
   const checkoutDir = checkout(path.join(root, 'checkout'), 'Fork/app')
+  execFileSync('git', ['remote', 'add', 'upstream', 'https://github.com/Upstream/app.git'], {
+    cwd: checkoutDir,
+    stdio: 'pipe',
+  })
   const { script } = trustedTriage(path.join(root, 'trusted'))
   const bin = path.join(root, 'bin')
   writeGh(bin)
@@ -51,15 +56,15 @@ describe('one repository per triage invocation', () => {
     )
     expect(result.code, result.stderr).toBe(0)
     expect(w.fake.created).toHaveLength(1)
-    expect(w.fake.created[0]).toMatchObject({ repo: 'Upstream/app', type: 'fix', parent: 70 })
+    expect(w.fake.created[0]).toMatchObject({ repo: 'Fork/app', type: 'fix', parent: 70 })
     expect(w.fake.calls.filter((call) => call.op === 'read').map((call) => call.path)).toEqual([
-      '/repos/Upstream/app/issues/101',
-      '/repos/Upstream/app/issues/70',
+      '/repos/Fork/app/issues/101',
+      '/repos/Fork/app/issues/70',
     ])
     const calls = readFileSync(w.log, 'utf8').trim().split('\n')
     expect(calls.filter((line) => line.startsWith('repo view'))).toHaveLength(1)
     expect(calls.filter((line) => line.startsWith('issue edit'))).toEqual([
-      expect.stringContaining('--repo Upstream/app'),
+      expect.stringContaining('--repo github.com/Fork/app'),
     ])
   })
 
@@ -71,12 +76,12 @@ describe('one repository per triage invocation', () => {
       w.env,
     )
     expect(result.code, result.stderr).toBe(0)
-    expect(w.fake.issues.get('Upstream/app#80')).toMatchObject({ type: 'fix', parent: 70, body: 'changed' })
-    expect(w.fake.issues.get('Fork/app#80')).toMatchObject({ body: '', blockedBy: [] })
+    expect(w.fake.issues.get('Fork/app#80')).toMatchObject({ type: 'fix', parent: 70, body: 'changed' })
+    expect(w.fake.issues.get('Upstream/app#80')).toMatchObject({ body: '', blockedBy: [] })
     const calls = readFileSync(w.log, 'utf8').trim().split('\n')
     expect(calls.filter((line) => line.startsWith('repo view'))).toHaveLength(1)
     expect(calls.filter((line) => line.startsWith('issue edit'))).toEqual([
-      expect.stringContaining('--repo Upstream/app'),
+      expect.stringContaining('--repo github.com/Fork/app'),
     ])
   })
 

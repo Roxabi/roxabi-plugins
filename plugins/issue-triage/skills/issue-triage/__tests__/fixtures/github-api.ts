@@ -56,12 +56,7 @@ export type GitHubFake = {
   close(): Promise<void>
 }
 
-const ISSUE_TYPES = ['feat', 'fix', 'docs', 'chore'].map((name) => ({
-  id: `IT_${name}`,
-  name,
-  color: 'GRAY',
-  isEnabled: true,
-}))
+const ISSUE_TYPES = ['feat', 'fix', 'docs', 'chore']
 
 function certificate(dir: string): { key: string; cert: string } {
   const key = path.join(dir, 'api.github.com.key')
@@ -119,13 +114,17 @@ export async function startGitHub(dir: string, seed: string[]): Promise<GitHubFa
       return { status: 200, data: { data: { repository: { issue: { parent } } } } }
     }
     if (op === 'issueTypes') {
-      return { status: 200, data: { data: { organization: { id: 'O', issueTypes: { nodes: ISSUE_TYPES } } } } }
+      if (typeof vars.login !== 'string') return { status: 400, data: { message: 'missing organization login' } }
+      const org = vars.login.toLowerCase()
+      const nodes = ISSUE_TYPES.map((name) => ({ id: `IT_${org}_${name}`, name, color: 'GRAY', isEnabled: true }))
+      return { status: 200, data: { data: { organization: { id: `O_${org}`, issueTypes: { nodes } } } } }
     }
     if (op === 'updateIssueIssueType') {
       const issue = byNode(vars.issueId)
-      const type = ISSUE_TYPES.find((t) => t.id === vars.issueTypeId)
-      if (!issue || !type) return { status: 200, data: { errors: [{ message: 'unknown node' }] } }
-      issue.type = type.name
+      const org = issue?.repo.split('/')[0].toLowerCase()
+      const type = ISSUE_TYPES.find((name) => `IT_${org}_${name}` === vars.issueTypeId)
+      if (!issue || !type) return { status: 200, data: { errors: [{ message: 'unknown node or issue type' }] } }
+      issue.type = type
       return { status: 200, data: { data: { updateIssueIssueType: { issue: { id: issue.nodeId } } } } }
     }
     if (op === 'addSubIssue') {
@@ -297,8 +296,18 @@ export type GhCall = { cwd: string; env: string; args: string }
 const GH = `#!/usr/bin/env bash
 set -u
 printf '%s\\t%s\\t%s\\n' "$(pwd -P)" "\${ENV_SENTINEL:-}" "$*" >> "$GH_LOG"
+if [ -n "\${GH_REQUIRE_REPO:-}" ]; then
+  case "$1 \${2:-}" in
+    "label list"|"label create"|"issue list"|"issue edit")
+      case " $* " in
+        *" --repo $GH_REQUIRE_REPO "*) ;;
+        *) echo 'gh: resolved the wrong host or repository' >&2; exit 1 ;;
+      esac ;;
+  esac
+fi
 case "$1 \${2:-}" in
   "repo view")
+    if [ "\${GH_REPO_SLUG+x}" ]; then printf '%s\\n' "$GH_REPO_SLUG"; exit 0; fi
     url=$(git remote get-url origin 2>/dev/null) || { echo "gh: no git remote here" >&2; exit 1; }
     url=\${url%.git}; printf '%s\\n' "\${url#https://github.com/}" ;;
   "api graphql")

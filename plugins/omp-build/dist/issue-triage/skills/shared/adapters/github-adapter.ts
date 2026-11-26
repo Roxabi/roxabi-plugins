@@ -21,7 +21,16 @@ const GRAPHQL_URL = `${GITHUB_API}/graphql`
 
 // --- Standalone helper functions ---
 
+import { REPO_SLUG_RE } from '../domain/repo-slug'
 import { detectGitHubRepo } from './config-helpers'
+
+function githubCliRepo(repo: string): string {
+  const slug = repo.replace(/^github\.com\//i, '')
+  if (!REPO_SLUG_RE.test(slug)) {
+    throw new ConfigError('Invalid GitHub repository. Expected "owner/repo" or "github.com/owner/repo".')
+  }
+  return `github.com/${slug}`
+}
 
 let cachedToken: string | undefined
 
@@ -34,7 +43,7 @@ export function getGitHubToken(): string {
   }
 
   try {
-    const proc = Bun.spawnSync(['gh', 'auth', 'token'], { stdout: 'pipe', stderr: 'pipe' })
+    const proc = Bun.spawnSync(['gh', 'auth', 'token', '--hostname', 'github.com'], { stdout: 'pipe', stderr: 'pipe' })
     const token = new TextDecoder().decode(proc.stdout).trim()
     if (token) {
       cachedToken = token
@@ -209,6 +218,7 @@ export async function updateLabels(
   remove: string[],
   repo: string = detectGitHubRepo(),
 ): Promise<void> {
+  const targetRepo = githubCliRepo(repo)
   let removeExisting = remove
   if (remove.length) {
     const out = await run([
@@ -216,7 +226,7 @@ export async function updateLabels(
       'label',
       'list',
       '--repo',
-      repo,
+      targetRepo,
       '--limit',
       '200',
       '--json',
@@ -232,7 +242,7 @@ export async function updateLabels(
     )
     removeExisting = remove.filter((l) => existing.has(l))
   }
-  const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', repo]
+  const args = ['gh', 'issue', 'edit', String(issueNumber), '--repo', targetRepo]
   if (add.length) args.push('--add-label', add.join(','))
   if (removeExisting.length) args.push('--remove-label', removeExisting.join(','))
   await run(args)
@@ -283,7 +293,19 @@ export interface IssueLabelSet {
 
 /** Label names defined on the repository. Does not delete any. */
 export async function listLabelNames(repo: string = detectGitHubRepo()): Promise<string[]> {
-  const out = await run(['gh', 'label', 'list', '--repo', repo, '--limit', '500', '--json', 'name', '--jq', '.[].name'])
+  const out = await run([
+    'gh',
+    'label',
+    'list',
+    '--repo',
+    githubCliRepo(repo),
+    '--limit',
+    '500',
+    '--json',
+    'name',
+    '--jq',
+    '.[].name',
+  ])
   return out
     .split('\n')
     .map((line) => line.trim())
@@ -304,7 +326,7 @@ export async function ensureLabel(
   const match = existing.find((have) => have.toLowerCase() === name.toLowerCase())
   if (match && match !== name) throw new Error(`label case mismatch: contract ${name}, repo ${match}`)
   if (match) return 'present'
-  await run(['gh', 'label', 'create', name, '--repo', repo, '--color', color])
+  await run(['gh', 'label', 'create', name, '--repo', githubCliRepo(repo), '--color', color])
   return 'created'
 }
 
@@ -315,7 +337,7 @@ export async function listIssueLabelSets(repo: string = detectGitHubRepo()): Pro
     'issue',
     'list',
     '--repo',
-    repo,
+    githubCliRepo(repo),
     '--state',
     'all',
     '--limit',

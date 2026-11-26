@@ -44,20 +44,28 @@ describe('ensureLabel', () => {
     expect(cmd.join(' ')).not.toMatch(/edit|create|--force|--color/)
   })
 
-  it('creates a missing label in the given colour and never forces a recolour', async () => {
+  it('creates a missing label on an explicitly host-qualified repo without forcing a recolour', async () => {
     spawnSpy
       .mockReturnValueOnce(mockProcess('bug\n') as unknown as ReturnType<typeof Bun.spawn>)
       .mockReturnValueOnce(mockProcess('') as unknown as ReturnType<typeof Bun.spawn>)
 
-    await expect(ensureLabel('size:S', 'Acme/app', 'bfd4f2')).resolves.toBe('created')
+    await expect(ensureLabel('size:S', 'github.com/github/.github', 'bfd4f2')).resolves.toBe('created')
 
+    const list = spawnSpy.mock.calls[0][0] as string[]
+    expect(list[list.indexOf('--repo') + 1]).toBe('github.com/github/.github')
     const create = spawnSpy.mock.calls[1][0] as string[]
+    expect(create[create.indexOf('--repo') + 1]).toBe('github.com/github/.github')
     expect(create).toContain('create')
     expect(create).toContain('--color')
     expect(create[create.indexOf('--color') + 1]).toBe('bfd4f2')
     expect(create).not.toContain('--force')
     expect(create).not.toContain('ededed')
     expect(create.join(' ')).not.toContain('edit')
+  })
+
+  it('rejects a doubled host rather than sending a gh command', async () => {
+    await expect(ensureLabel('size:S', 'github.com/github.com/Acme/app')).rejects.toThrow('Invalid GitHub repository')
+    expect(spawnSpy).not.toHaveBeenCalled()
   })
 
   it('reports a case mismatch instead of creating', async () => {

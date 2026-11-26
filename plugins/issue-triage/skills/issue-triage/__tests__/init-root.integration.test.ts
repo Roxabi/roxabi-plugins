@@ -93,8 +93,10 @@ async function runApprovedInit(script: string, rootArg: string, cwd: string, env
 }
 
 describe('triage init --root', () => {
-  it('reads the target contract rather than the trusted installation contract', async () => {
+  it('reads the target contract, and reads and writes its public tracker despite an enterprise GH_HOST', async () => {
     const w = await world('target-only')
+    w.env.GH_HOST = 'enterprise.example'
+    w.env.GH_REQUIRE_REPO = 'github.com/Acme/app'
     const ran = await runApprovedInit(w.script, w.target, path.dirname(w.script), w.env)
 
     expect(ran.code).toBe(0)
@@ -109,6 +111,13 @@ describe('triage init --root', () => {
     const children = ghCalls(w.ghLog)
     expect(children).not.toEqual([])
     expect(children.every((child) => child.cwd === path.dirname(w.script) && child.env === '')).toBe(true)
+    expect(children.map(({ args }) => args)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('issue list --repo github.com/Acme/app'),
+        expect.stringContaining('label list --repo github.com/Acme/app'),
+        expect.stringContaining('label create target-only --repo github.com/Acme/app'),
+      ]),
+    )
   })
 
   it('writes an absent contract only under the selected target checkout', async () => {

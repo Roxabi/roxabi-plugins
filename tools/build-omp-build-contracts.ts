@@ -24,6 +24,7 @@ const issueTriageSlice = [
   'skills/shared/domain/errors.ts',
   'skills/shared/domain/issue-types.ts',
   'skills/shared/domain/issue-write.ts',
+  'skills/shared/domain/repo-slug.ts',
   'skills/shared/domain/types.ts',
   'skills/shared/queries.ts',
 ] as const

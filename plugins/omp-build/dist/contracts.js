@@ -191,8 +191,10 @@ function calculateTier(factors) {
     return { score, tier: "F-lite" };
   return { score, tier: "F-full" };
 }
+// plugins/issue-triage/skills/shared/domain/repo-slug.ts
+var REPO_SLUG_RE = /^[a-z0-9][a-z0-9-]*\/(?!(?:\.|\.\.|\.git)$)[a-z0-9._-]{1,100}(?![\s\S])/i;
+
 // plugins/issue-triage/skills/shared/domain/issue-write.ts
-var REPOSITORY_SLUG = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 var keyOf = (ref) => `${ref.repository}#${ref.number}`;
 function sameRef(left, right) {
   return left.repository === right.repository && left.number === right.number;
@@ -219,7 +221,7 @@ function diagnostic(code, message, issue) {
   return issue ? { code, message, issue } : { code, message };
 }
 function validateRef(ref, field) {
-  if (!ref || typeof ref !== "object" || !REPOSITORY_SLUG.test(ref.repository)) {
+  if (!ref || typeof ref !== "object" || !REPO_SLUG_RE.test(ref.repository)) {
     return diagnostic("write-invalid-reference", `${field} has an invalid repository reference`);
   }
   if (!Number.isSafeInteger(ref.number) || ref.number < 1) {
@@ -264,7 +266,7 @@ function validateLabels(labels) {
   return;
 }
 function validatePlan(plan, requiresTitle) {
-  if (!plan || typeof plan !== "object" || !REPOSITORY_SLUG.test(plan.repository)) {
+  if (!plan || typeof plan !== "object" || !REPO_SLUG_RE.test(plan.repository)) {
     return diagnostic("write-invalid-plan", "Plan repository must be an owner/repository slug");
   }
   if (typeof plan.body !== "string")

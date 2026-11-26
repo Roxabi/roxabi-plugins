@@ -2,9 +2,10 @@
  * Parse issue references — local (#123) or cross-repo (owner/repo#123).
  */
 
+import { REPO_SLUG_RE } from './repo-slug'
 import type { ParsedIssueRef } from './types'
 
-const CROSS_REPO_RE = /^([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)#(\d+)$/
+const CROSS_REPO_RE = /^([^#]+)#(\d+)$/
 const LOCAL_RE = /^#?(\d+)$/
 
 /**
@@ -21,7 +22,7 @@ export function parseIssueRef(input: string): ParsedIssueRef | undefined {
 
   // Cross-repo: owner/repo#123
   const crossMatch = trimmed.match(CROSS_REPO_RE)
-  if (crossMatch) {
+  if (crossMatch && REPO_SLUG_RE.test(crossMatch[1])) {
     return { repo: crossMatch[1], number: Number(crossMatch[2]) }
   }
 

@@ -29,7 +29,7 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { detectGitHubRepo } from '../../shared/adapters/config-helpers'
+import { detectGitHubRepo, sameGitHubRepo } from '../../shared/adapters/config-helpers'
 import {
   ensureLabel,
   listEnabledOrgIssueTypes,
@@ -38,6 +38,7 @@ import {
   updateLabels,
 } from '../../shared/adapters/github-adapter'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
+import { REPO_SLUG_RE } from '../../shared/domain/repo-slug'
 import {
   applyRelabels,
   CANONICAL_LABELS,
@@ -207,7 +208,7 @@ export function contractAction(
   current: string | null,
   next: string,
 ): InitPlan['contract'] {
-  if (repo !== cwdRepo) return 'skip-other-repo'
+  if (!sameGitHubRepo(repo, cwdRepo)) return 'skip-other-repo'
   if (current === null) return 'write'
   if (current === next) return 'unchanged'
   return 'keep-existing'
@@ -341,7 +342,7 @@ export async function buildPlan(
   cwdRepo: string,
   deps: Pick<InitDeps, 'listLabelNames' | 'listIssueLabelSets' | 'readContract'>,
 ): Promise<{ plan: InitPlan; issues: IssueLabels[]; contractText: string }> {
-  const otherRepo = repo !== cwdRepo
+  const otherRepo = !sameGitHubRepo(repo, cwdRepo)
   // Sequential: a parallel rejection would put whichever call failed first into
   // the error, so two previews of the same repo could disagree and refuse approval.
   const defined = await deps.listLabelNames(repo)
@@ -465,8 +466,10 @@ function parseArgs(args: string[]): {
       }
       if (arg === '--approve') approve = value
       else if (arg === '--operator-approval') operatorApproval = value
-      else if (arg === '--repo') repo = value
-      else root = value
+      else if (arg === '--repo') {
+        if (!REPO_SLUG_RE.test(value)) throw new Error('init: --repo needs owner/repo')
+        repo = value
+      } else root = value
       i++
       continue
     }
