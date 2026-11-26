@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { REAL_BUN, recipeEnv, run, startGitHub } from './fixtures/github-api'
 import {
   CREDENTIAL,
+  commentsOnlyRepoYaml,
   GIT_ENV,
   invalidRepoYaml,
   PARENT,
@@ -14,6 +15,7 @@ import {
   refusedOrigins,
   repoFixture,
   supportedOrigins,
+  validPinYaml,
 } from './fixtures/repo-identity'
 
 const skill = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../SKILL.md'), 'utf8')
@@ -215,8 +217,15 @@ fi
     expect(result.called).toBe(false)
   })
 
-  it('uses origin when project YAML contains only a comment', () => {
-    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml: '# Project configuration\n' })
+  it.each(validPinYaml)('uses the YAML pin when %s', (_name, yaml) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml })
+    expect(result.status).toBe(0)
+    expect(result.ghLog.trim()).toBe('issue view 42 --repo github.com/Pin/yaml --json body --jq .body')
+    expect(result.setLog).toContain('Pin/yaml set Pin/yaml#42')
+  })
+
+  it('uses origin when project YAML contains only comments mentioning the key', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml: commentsOnlyRepoYaml })
     expect(result.status).toBe(0)
     expect(result.ghLog.trim()).toBe(`issue view 42 --repo github.com/${PRODUCT} --json body --jq .body`)
     expect(result.setLog).toContain(`${PRODUCT} set ${PRODUCT}#42`)

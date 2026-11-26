@@ -55,13 +55,25 @@ export const invalidRepoYaml = [
   ['multi-document stream', '---\ngithub_repo: Pin/yaml\n---\nunrelated: setting\n'],
   ['sequence', '- github_repo: Pin/yaml\n'],
   ['scalar', 'Pin/yaml\n'],
+  ['null scalar', 'null\n'],
+  ['tilde scalar', '~\n'],
   ['parse error', 'github_repo: "unterminated\n'],
   ['duplicate pin keys', 'github_repo: Pin/first\n"github_repo": Pin/second\n'],
   ['duplicate flow pin keys', '{ github_repo: Pin/first, "github_repo": Pin/second }\n'],
   ['escaped pin key spelling', '"github\\u005frepo": Pin/yaml\n'],
   ['mixed literal and escaped pin keys', 'github_repo: Pin/first\n"github\\u005frepo": Pin/second\n'],
-  ['pin key mentioned in a comment', 'github_repo: Pin/yaml # this is github_repo\n'],
+  ['pin key on a quoted line with a second mention', 'github_repo: "Pin/yaml" # this is github_repo\n'],
 ] as const
+
+export const validPinYaml = [
+  [
+    'comments mention the key',
+    '# github_repo selects the tracker\n# github_repo: Pin/unused\ngithub_repo: Pin/yaml # github_repo pin\n',
+  ],
+  ['an unrelated key contains the same substring', 'previous_github_repo: Pin/unused\ngithub_repo: Pin/yaml\n'],
+] as const
+
+export const commentsOnlyRepoYaml = '# github_repo selects the tracker\n# github_repo: Pin/unused\n'
 
 export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string; yaml?: string }
 

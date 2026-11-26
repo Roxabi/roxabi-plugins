@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { type GitHubFake, ghCalls, REAL_BUN, recipeEnv, run, startGitHub, writeGh } from './fixtures/github-api'
 import {
   CREDENTIAL,
+  commentsOnlyRepoYaml,
   GIT_ENV,
   invalidRepoYaml,
   PARENT,
@@ -13,6 +14,7 @@ import {
   refusedOrigins,
   repoFixture,
   supportedOrigins,
+  validPinYaml,
 } from './fixtures/repo-identity'
 
 const TRIAGE = join(import.meta.dirname, '../triage.ts')
@@ -149,14 +151,19 @@ describe('origin-first tracker discovery (#614)', () => {
     expect(result.stdout.trim()).toBe('Pin/yaml')
   })
 
-  it.each(['unrelated: setting\n', '# Project configuration\n', ''])(
-    'uses origin when YAML has no pin (%j)',
-    async (yaml) => {
-      const result = await resolveRepo(setup({ single: true, yaml }))
-      expect(result.code).toBe(0)
-      expect(result.stdout.trim()).toBe(PRODUCT)
-    },
-  )
+  it.each(validPinYaml)('honors the YAML pin when %s', async (_name, yaml) => {
+    const fixture = setup({ yaml })
+    const result = await resolveRepo(fixture)
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe('Pin/yaml')
+    expect(repoProbes(fixture)).toEqual([])
+  })
+
+  it.each(['unrelated: setting\n', commentsOnlyRepoYaml, ''])('uses origin when YAML has no pin (%j)', async (yaml) => {
+    const result = await resolveRepo(setup({ single: true, yaml }))
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe(PRODUCT)
+  })
 
   it('honors the environment pin without reading invalid project YAML', async () => {
     const result = await resolveRepo(setup({ yaml: 'github_repo: "unterminated\n' }, { GITHUB_REPO: 'Pin/env' }))
