@@ -15,6 +15,7 @@ export const supportedOrigins = [
   ['literal GitHub SSH on port 443', 'ssh://git@ssh.github.com:443/Acme/product.git'],
   ['GitHub SCP alias', 'git@github-work:Acme/product.git'],
   ['GitHub SSH alias with explicit port', 'ssh://git@github-work-port:22/Acme/product.git'],
+  ['GitHub SSH alias with percent-encoded username', 'ssh://%67it@github-work-port:22/Acme/product.git'],
 ] as const
 
 export const refusedOrigins = [
@@ -33,11 +34,26 @@ export const refusedOrigins = [
   ['fragment before a GitHub-looking userinfo suffix', `https://user:${CREDENTIAL}#x@github.com/Acme/product.git`],
   ['GitHub HTTPS path normalized to a different path', 'https://github.com/wrong/../Acme/product.git'],
   ['GitHub HTTPS origin with surrounding whitespace', ' https://github.com/Acme/product.git '],
+  ['GitHub HTTPS origin with a leading BOM', '\uFEFFhttps://github.com/Acme/product.git'],
+  ['GitHub HTTPS host with a non-ASCII homoglyph', 'https://g\uFF49thub.com/Acme/product.git'],
+  ['GitHub HTTPS origin with an embedded control character', 'https://git\thub.com/Acme/product.git'],
+  ['GitHub SSH URI with an out-of-range port', 'ssh://git@github.com:65536/Acme/product.git'],
+  ['GitHub HTTPS URI with port zero', 'https://github.com:0/Acme/product.git'],
+  ['GitHub SSH URI with a malformed user escape', 'ssh://g%6Zt@github.com/Acme/product.git'],
+  ['GitHub SSH URI with an encoded user delimiter', 'ssh://git%40github.com@github.com/Acme/product.git'],
+  ['GitHub SSH URI with a double-encoded username', 'ssh://%2567it@github.com/Acme/product.git'],
 ] as const
 
-export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string }
+export const invalidRepoYaml = [
+  ['multi-document stream', '---\ngithub_repo: Pin/yaml\n---\nunrelated: setting\n'],
+  ['sequence', '- github_repo: Pin/yaml\n'],
+  ['scalar', 'Pin/yaml\n'],
+  ['parse error', 'github_repo: "unterminated\n'],
+] as const
 
-export function repoFixture({ origin, single, yamlPin }: RepoFixtureOptions = {}) {
+export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string; yaml?: string }
+
+export function repoFixture({ origin, single, yamlPin, yaml }: RepoFixtureOptions = {}) {
   const root = mkdtempSync(join(tmpdir(), 'triage-origin-'))
   const cwd = join(root, 'checkout')
   const bin = join(root, 'bin')
@@ -48,9 +64,10 @@ export function repoFixture({ origin, single, yamlPin }: RepoFixtureOptions = {}
   git('init', '-q')
   if (origin !== null) git('remote', 'add', 'origin', origin ?? `https://github.com/${PRODUCT}.git`)
   if (!single) git('remote', 'add', 'upstream', `https://github.com/${PARENT}.git`)
-  if (yamlPin !== undefined) {
+  const config = yaml ?? (yamlPin !== undefined ? `github_repo : '${yamlPin}' # tracker pin\n` : undefined)
+  if (config !== undefined) {
     mkdirSync(join(cwd, '.dev'))
-    writeFileSync(join(cwd, '.dev', 'dev-core.yml'), `github_repo : '${yamlPin}' # tracker pin\n`)
+    writeFileSync(join(cwd, '.dev', 'dev-core.yml'), config)
   }
   writeFileSync(
     join(bin, 'ssh'),

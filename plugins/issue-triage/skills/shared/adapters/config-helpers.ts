@@ -31,9 +31,12 @@ function repoPin(): unknown {
   try {
     document = Bun.YAML.parse(yaml)
   } catch {
-    throw new ConfigError('Cannot parse .dev/dev-core.yml. Set GITHUB_REPO or correct the YAML.')
+    throw new ConfigError(`Cannot parse ${DEV_CORE_YML}. Set GITHUB_REPO or correct the YAML.`)
   }
-  if (!document || typeof document !== 'object' || !Object.hasOwn(document, 'github_repo')) return undefined
+  if (!document || typeof document !== 'object' || Array.isArray(document)) {
+    throw new ConfigError(`${DEV_CORE_YML} must contain a single YAML mapping. Set GITHUB_REPO or correct the YAML.`)
+  }
+  if (!Object.hasOwn(document, 'github_repo')) return undefined
   const value = (document as Record<string, unknown>).github_repo
   return value === '' || value === null ? undefined : value
 }
@@ -52,14 +55,21 @@ export function sameGitHubRepo(left: string, right: string): boolean {
 }
 
 function commandOutput(args: string[]): string | undefined {
+  let bytes: Uint8Array
   try {
     const proc = Bun.spawnSync(args, { stdout: 'pipe', stderr: 'pipe' })
     if (proc.exitCode !== 0) return undefined
-    const output = new TextDecoder().decode(proc.stdout)
+    bytes = proc.stdout
+  } catch {
+    return undefined
+  }
+  try {
+    const output = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
     // Remove the command's line terminator, not whitespace in a Git URL.
     return output.endsWith('\n') ? output.slice(0, -1) : output
   } catch {
-    // A missing executable cannot establish repository identity.
+    // A successful command with invalid bytes is not the same as no origin.
+    return ''
   }
 }
 
@@ -107,36 +117,47 @@ function sshHostname(host: string, user?: string, port?: string): string | undef
     .toLowerCase()
 }
 
+// Match the raw spelling before URL parsing. WHATWG normalization alone could
+// turn Git's malformed or foreign origin into a different GitHub URL.
+const HTTPS_ORIGIN =
+  /^https:\/\/(?:(?:[A-Za-z0-9._~!$&'()*+,;=:-]|%[0-9A-Fa-f]{2})+@)?([A-Za-z0-9.-]+)(?::([0-9]+))?\/([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)(\/?)$/
+const SSH_ORIGIN =
+  /^ssh:\/\/(?:((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)@)?([A-Za-z0-9.-]+)(?::([0-9]+))?\/([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)\/?$/
+const SCP_ORIGIN = /^(?:([A-Za-z0-9._-]+)@)?([A-Za-z0-9.-]+):([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)$/
+
 function originRepo(url: string): string | undefined {
-  if (url !== url.trim()) return undefined
-  let host: string | undefined
-  let path: string | undefined
-  let user: string | undefined
-  let port: string | undefined
-  let ssh = true
-  if (url.includes('://')) {
-    // Do not accept URLs repaired by WHATWG normalization (e.g. missing
-    // authority, backslashes, or path traversal collapsing to owner/repo).
-    if (!/^(https?|git|ssh):\/\/[^/]/i.test(url) || /[\s\\]|\/(?:\.|%2e){1,2}(?=\/|[?#]|$)/i.test(url)) {
+  if (/[^\x21-\x7e]/.test(url)) return undefined
+  const https = HTTPS_ORIGIN.exec(url)
+  const ssh = SSH_ORIGIN.exec(url)
+  const scp = https || ssh ? null : SCP_ORIGIN.exec(url)
+  if (!https && !ssh && !scp) return undefined
+
+  const host = (https?.[1] ?? ssh?.[2] ?? scp?.[2] ?? '').toLowerCase()
+  const path = https?.[3] ?? ssh?.[4] ?? scp?.[3] ?? ''
+  const repo = path.replace(/\.git$/, '')
+  if (!REPO_SLUG_RE.test(repo)) return undefined
+
+  const rawPort = https?.[2] ?? ssh?.[3]
+  const port = rawPort === undefined ? undefined : Number(rawPort)
+  if (port !== undefined && (port < 1 || port > 65_535)) return undefined
+
+  if (https) {
+    const uri = URL.parse(url)
+    const expectedPort = port === undefined || port === 443 ? '' : String(port)
+    if (uri?.hostname !== host || uri.port !== expectedPort || uri.pathname !== `/${path}${https[4]}`) return undefined
+    return host === 'github.com' ? repo : undefined
+  }
+
+  let user = ssh?.[1] ?? scp?.[1]
+  if (ssh?.[1]) {
+    try {
+      user = decodeURIComponent(ssh[1])
+    } catch {
       return undefined
     }
-    const uri = URL.parse(url)
-    if (!uri || uri.search || uri.hash) return undefined
-    host = uri.hostname
-    path = uri.pathname.slice(1)
-    user = uri.username
-    port = uri.port
-    ssh = uri.protocol === 'ssh:'
-  } else {
-    const scp = /^(?:([a-z0-9_][a-z0-9._-]*)@)?([a-z0-9_][a-z0-9._-]*):([^/].*)$/i.exec(url)
-    if (scp) [, user, host, path] = scp
+    if (!/^[A-Za-z0-9._-]+$/.test(user)) return undefined
   }
-  const repo = path?.replace(/\/$/, '').replace(/\.git$/, '')
-  if (!host || !repo || !REPO_SLUG_RE.test(repo)) return undefined
-  host = host.toLowerCase()
-  if (!ssh) return host === 'github.com' ? repo : undefined
-  if (!/^[a-z0-9_][a-z0-9._-]*$/.test(host)) return undefined
-  const effectiveHost = sshHostname(host, user, port)
+  const effectiveHost = sshHostname(host, user, port === undefined ? undefined : String(port))
   return effectiveHost === 'github.com' || effectiveHost === 'ssh.github.com' ? repo : undefined
 }
 

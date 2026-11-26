@@ -7,6 +7,7 @@ import { REAL_BUN, recipeEnv, run, startGitHub } from './fixtures/github-api'
 import {
   CREDENTIAL,
   GIT_ENV,
+  invalidRepoYaml,
   PARENT,
   PRODUCT,
   type RepoFixtureOptions,
@@ -203,6 +204,14 @@ fi
   it('does not call set when a matched marker is not a number', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec <!-- complexity: nope -->' })
     expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
+  })
+
+  it.each(invalidRepoYaml)('refuses an invalid project YAML %s before issue reads or writes', (_name, yaml) => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml })
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('.dev/dev-core.yml')
+    expect(result.ghLog).toBe('')
     expect(result.called).toBe(false)
   })
 

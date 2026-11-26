@@ -6,6 +6,7 @@ import { type GitHubFake, ghCalls, REAL_BUN, recipeEnv, run, startGitHub, writeG
 import {
   CREDENTIAL,
   GIT_ENV,
+  invalidRepoYaml,
   PARENT,
   PRODUCT,
   type RepoFixtureOptions,
@@ -132,6 +133,27 @@ describe('origin-first tracker discovery (#614)', () => {
       expect(repoProbes(fixture)).toEqual([])
     },
   )
+
+  it.each(invalidRepoYaml)('refuses an invalid YAML %s instead of falling through to origin', async (_name, yaml) => {
+    const fixture = setup({ yaml })
+    const result = await resolveRepo(fixture)
+    expect(result.code).not.toBe(0)
+    expect(result.stdout.trim()).toBe('')
+    expect(result.stderr).toContain('.dev/dev-core.yml')
+    expect(repoProbes(fixture)).toEqual([])
+  })
+
+  it('uses origin when a single project YAML mapping has no tracker pin', async () => {
+    const result = await resolveRepo(setup({ single: true, yaml: 'unrelated: setting\n' }))
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe(PRODUCT)
+  })
+
+  it('honors the environment pin without reading invalid project YAML', async () => {
+    const result = await resolveRepo(setup({ yaml: 'github_repo: "unterminated\n' }, { GITHUB_REPO: 'Pin/env' }))
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe('Pin/env')
+  })
 
   it('refuses an alias configured only through core.sshCommand without executing that command', async () => {
     const fixture = setup({ origin: 'git@profile-only:Acme/product.git', single: true })
