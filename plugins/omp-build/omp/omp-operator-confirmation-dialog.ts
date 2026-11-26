@@ -2,7 +2,7 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { KeyEvent } from '@oh-my-pi/pi-tui'
 import { jsx } from '@oh-my-pi/pi-tui/element'
 import { nativeRendering, nativeSupports } from '@oh-my-pi/pi-tui/host'
-import { computed, onCleanup, signal as revisionSignal } from '@oh-my-pi/pi-tui/reactive'
+import { computed, onCleanup, signal as revisionSignal, structural } from '@oh-my-pi/pi-tui/reactive'
 import type { PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { nativeText } from './omp-operator-confirmation-field.ts'
 import { framingDetails } from './omp-operator-confirmation-framing.ts'
@@ -94,6 +94,7 @@ export async function showOperatorProposal(
       let closed = false
       let pasted = false
       let renderedColumns: number | undefined
+      let nativeRenderedColumns: number | undefined
       let actionable = false
       const finish = (choice: OperatorChoice) => {
         closed = true
@@ -101,7 +102,7 @@ export async function showOperatorProposal(
       }
       const ready = (native: boolean) => {
         const { columns, rows } = ui.size()
-        if (renderedColumns !== columns) return false
+        if ((native ? nativeRenderedColumns : renderedColumns) !== columns) return false
         if (!native) return actionable && motion.height === rows
         motion.height = rows
         return operatorDialogLayout(columns, rows, motion.selected, 0, []).actionable
@@ -111,54 +112,58 @@ export async function showOperatorProposal(
         if (action === 'cancel') finish('defer')
         else if (ready(native) && commitDialogInput(motion, action, finish)) revision.update((n) => n + 1)
       }
-      const onKey = (native: boolean) => (key: KeyEvent) => {
+      const onKey = (key: KeyEvent) => {
         const action = operatorDialogInput(key, keys)
         // The decoder only marks the first key in the paste read; require an explicit other action to rearm.
         if (pasted && (action === 'confirm' || action === 'select')) return true
         if (action !== 'none') pasted = false
-        input(action, native)
+        input(action, nativeRendering())
         return true
       }
       const onPaste = () => {
         pasted = true
         return true
       }
-      const onNativeAction = (action: NativeChoice) => input(action === 'defer' ? 'cancel' : action, true)
-      if (!nativeRendering()) {
-        return jsx('canvas', {
-          onKey: onKey(false),
-          onPaste,
-          paint(columns: number) {
-            revision()
-            const size = ui.size()
-            renderedColumns = columns
-            motion.height = size.rows
-            const layout = operatorDialogLayout(
-              columns,
-              size.rows,
-              motion.selected,
-              motion.offset,
-              technical() ? details : body,
-            )
-            actionable = layout.actionable
-            motion.offset = layout.offset
-            motion.maxOffset = layout.maxOffset
-            return layout.lines
-          },
-        })
+      const onNativeAction = (action: NativeChoice) => {
+        if (nativeRendering()) input(action === 'defer' ? 'cancel' : action, true)
       }
+      const ansi = jsx('canvas', {
+        onKey,
+        onPaste,
+        paint(columns: number) {
+          revision()
+          const { rows } = ui.size()
+          renderedColumns = columns
+          motion.height = rows
+          const layout = operatorDialogLayout(
+            columns,
+            rows,
+            motion.selected,
+            motion.offset,
+            technical() ? details : body,
+          )
+          actionable = layout.actionable
+          motion.offset = layout.offset
+          motion.maxOffset = layout.maxOffset
+          return layout.lines
+        },
+      })
+      if (!nativeRendering()) return ansi
       const content = jsx(
         'col',
         {
           role: 'omp.operator.confirmation.body',
           scroll: () => {
+            if (!nativeRendering()) return undefined
             revision()
             return motion.scroll
           },
           children: () =>
-            (technical() ? details : body)
-              .flatMap((line) => line.split('\n'))
-              .map((line, index) => jsx('text', { text: nativeText(line), wrap: 'word' }, String(index))),
+            nativeRendering()
+              ? (technical() ? details : body)
+                  .flatMap((line) => line.split('\n'))
+                  .map((line, index) => jsx('text', { text: nativeText(line), wrap: 'word' }, String(index)))
+              : [ansi],
         },
         'body',
       )
@@ -190,31 +195,43 @@ export async function showOperatorProposal(
         },
         'dock',
       )
+      const viewportGeneration = revisionSignal(0)
+      const viewport = structural(() => {
+        const generation = viewportGeneration()
+        let width: number | undefined
+        return jsx(
+          'canvas',
+          {
+            hidden: true,
+            paint(columns: number) {
+              if (generation !== viewportGeneration.peek()) return []
+              if (width !== undefined && width !== columns) {
+                // The old record repaints eagerly on resize. Only a new keyed record is
+                // first painted as part of reconciliation and necessarily emits an add op.
+                nativeRenderedColumns = undefined
+                viewportGeneration.set(generation + 1)
+              } else {
+                width = columns
+                nativeRenderedColumns = columns
+                onCleanup(() => {
+                  if (generation === viewportGeneration.peek()) nativeRenderedColumns = undefined
+                })
+              }
+              return []
+            },
+          },
+          `viewport-${generation}`,
+        )
+      })
       // The host must see the page node itself to dock the actions and route focus inside it.
       return jsx('overlay', {
         size: 'full',
+        role: 'omp.sheet.bare',
         page: { role: 'omp.operator.confirmation', dock: 1 },
-        onKey: onKey(true),
+        onKey,
         onPaste,
-        children: [
-          content,
-          jsx(
-            'canvas',
-            {
-              hidden: true,
-              // Only the reconciler paints; it supplies the independently tracked Tern width.
-              paint(columns: number) {
-                renderedColumns = columns
-                onCleanup(() => {
-                  renderedColumns = undefined
-                })
-                return []
-              },
-            },
-            'viewport',
-          ),
-          dock,
-        ],
+        // Keep the focused body mounted when the optimistic Tern handshake falls back.
+        children: () => (nativeRendering() ? [content, viewport(), dock] : [content]),
       })
     },
     { overlay: true, fullscreen: true, signal },

@@ -1,6 +1,7 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import { nativeRendering, nativeSupports } from '@oh-my-pi/pi-tui/host'
 import { isUiNode, UiNode } from '@oh-my-pi/pi-tui/node'
+import { signal } from '@oh-my-pi/pi-tui/reactive'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { PreparedOperatorProposal } from '../../roxabi/uw-contract.ts'
 import {
@@ -26,12 +27,16 @@ const proposal = {
 
 function mount(prepared: PreparedOperatorProposal = proposal, native = false, buttons = true) {
   let node!: UiNode
+  const nativeMode = signal(native)
   const terminal = { columns: 80, rows: 18 }
   const result = Promise.withResolvers<OperatorChoice>()
   const decisions: OperatorChoice[] = []
   const ui = {
     custom: (factory: Parameters<ExtensionContext['ui']['custom']>[0]) => {
-      vi.mocked(nativeRendering).mockReturnValueOnce(native)
+      vi.mocked(nativeRendering).mockImplementation(nativeMode)
+      onTestFinished(() => {
+        vi.mocked(nativeRendering).mockReset()
+      })
       vi.mocked(nativeSupports).mockReturnValue(buttons)
       try {
         const view = factory(
@@ -62,12 +67,13 @@ function mount(prepared: PreparedOperatorProposal = proposal, native = false, bu
   if (nativeFrames) void choice.then(() => nativeFrames.dispose())
   const view = {
     render(width: number): readonly string[] {
-      if (node.kind !== 'canvas') throw new Error('Expected a terminal confirmation canvas')
-      return (node as UiNode<'canvas'>).props().paint(width)
+      const canvas = node.kind === 'canvas' ? node : node.children()[0]?.children()[0]
+      if (canvas?.kind !== 'canvas') throw new Error('Expected a terminal confirmation canvas')
+      return (canvas as UiNode<'canvas'>).props().paint(width)
     },
     handleInput: dialogInputReader(node),
   }
-  return { node, view, terminal, choice, decisions, nativeFrames }
+  return { node, view, terminal, choice, decisions, nativeFrames, nativeMode }
 }
 
 function longProposal(): PreparedOperatorProposal {
@@ -415,15 +421,31 @@ describe('operator dialog input and viewport', () => {
     expect(native.present().ops.length).toBeGreaterThan(0)
     native.columns.set(40)
     expect(frame.click('confirm')).toBe(true)
+    expect(mounted.decisions).toEqual([])
+    mounted.terminal.columns = 40
     mounted.view.handleInput('c')
-    native.present()
     expect(frame.click('confirm')).toBe(true)
     expect(mounted.decisions).toEqual([])
-    native.columns.set(80)
-    native.present()
+    expect(native.present().ops).toContainEqual(
+      expect.arrayContaining(['add', expect.objectContaining({ k: 'rows', p: expect.objectContaining({ cols: 40 }) })]),
+    )
     mounted.terminal.rows = 10
     expect(frame.click('confirm')).toBe(true)
     await expect(mounted.choice).resolves.toBe('confirm')
+  })
+
+  it('rearms through an ANSI render when Tern falls back with the dialog open', async () => {
+    const mounted = mount(proposal, true)
+    mounted.nativeFrames?.present()
+    const focused = mounted.node.children()[0]
+    mounted.nativeFrames?.dispose()
+    mounted.nativeMode.set(false)
+    expect(mounted.node.children()).toEqual([focused])
+    mounted.view.handleInput('c')
+    expect(mounted.decisions).toEqual([])
+    expect(mounted.view.render(80).join('\n')).toContain('[R] Refuser')
+    mounted.view.handleInput('r')
+    await expect(mounted.choice).resolves.toBe('refuse')
   })
 
   it.each(['outside the dock', 'disabled'] as const)(
