@@ -36,6 +36,23 @@ function parseRepoConfig(yaml: string): Record<string, unknown> | undefined {
   return document as Record<string, unknown>
 }
 
+function hasYamlAnchorReference(yaml: string): boolean {
+  if (!yaml.includes('&') || !yaml.includes('*')) return false
+  const anchors = new Set<string>()
+  const aliases = new Set<string>()
+  // Anchor and alias names end at whitespace or a YAML flow delimiter.
+  for (const [, marker, name] of yaml.matchAll(/([&*])([^\s,[\]{}]+)/g)) {
+    if (marker === '&') {
+      if (aliases.has(name)) return true
+      anchors.add(name)
+    } else {
+      if (anchors.has(name)) return true
+      aliases.add(name)
+    }
+  }
+  return false
+}
+
 function repoPin(): unknown {
   if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
 
@@ -50,6 +67,11 @@ function repoPin(): unknown {
   const key = 'github_repo'
   const document = parseRepoConfig(yaml)
   if (!document || !Object.hasOwn(document, key)) return undefined
+  if (hasYamlAnchorReference(yaml)) {
+    throw new ConfigError(
+      `Ambiguous github_repo in ${DEV_CORE_YML}: YAML anchor references (including merges) are unsupported. Set GITHUB_REPO or remove them.`,
+    )
+  }
   const value = document[key]
 
   // Bun silently overwrites duplicate YAML keys. Find the unique spelling

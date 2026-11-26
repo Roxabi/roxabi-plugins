@@ -52,6 +52,8 @@ Importing the tracker adapters does not discover a repository. Calls with explic
 
 The default repository is selected in this order: `GITHUB_REPO`, `.dev/dev-core.yml` `github_repo`, the GitHub `origin` (including GitHub SSH aliases), then `gh repo view` only if origin is absent. A foreign, local, or unusable origin requires an explicit pin. In a multi-remote checkout the CLI explains when origin takes precedence over a different `gh repo view` result; `repo` prints only the selected target for recipes, without checking for disagreement.
 
+A `github_repo` pin must use one literal key in a single YAML mapping. A matching YAML anchor/alias pair anywhere in the file, including a merge, makes the pin ambiguous. Use `GITHUB_REPO` instead if the config needs aliases.
+
 SSH origins use the effective host reported by a bounded `ssh -G` probe, like `gh`. The probe may resolve DNS if your SSH configuration canonicalizes hostnames. Git's custom SSH commands and profiles are not consulted; pin the repo explicitly if an alias depends on them. Without `ssh`, only literal GitHub SSH hosts work.
 
 Contract-path confinement resolves every ancestor and final symlink. External physical contract destinations, non-directory ancestors, cycles and chains exceeding 40 symlink expansions are refused before GitHub or contract writes. Missing internal targets retain their full path and are created at the resolved physical destination. The original contract path is rechecked after creating its physical parent; this is not atomic protection against concurrent filesystem changes.

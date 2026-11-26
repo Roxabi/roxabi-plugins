@@ -62,6 +62,8 @@ export const invalidRepoYaml = [
   ['duplicate flow pin keys', '{ github_repo: Pin/first, "github_repo": Pin/second }\n'],
   ['escaped pin key spelling', '"github\\u005frepo": Pin/yaml\n'],
   ['mixed literal and escaped pin keys', 'github_repo: Pin/first\n"github\\u005frepo": Pin/second\n'],
+  ['duplicate keys defined via an alias', 'key_name: &name github_repo\n? *name\n: Pin/first\n? *name\n: Pin/second\n'],
+  ['duplicate key via a merge', 'base: &base { github_repo: Pin/first }\n<<: *base\ngithub_repo: Pin/second\n'],
 ] as const
 
 export const validPinYaml = [
@@ -78,6 +80,7 @@ export const validPinYaml = [
   ],
   ['a quoted pin has an inline comment', 'github_repo: "Pin/yaml" # this is github_repo\n', 'Pin/yaml'],
   ['the pin value contains the key', 'github_repo: Pin/github_repo\n', 'Pin/github_repo'],
+  ['a URL contains an ampersand', 'notes: https://example.com/?a=1&b=2\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
   ['the usual sentinel is already a mapping key', 'triage00000: Pin/unused\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
 ] as const
 

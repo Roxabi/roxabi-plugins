@@ -165,6 +165,13 @@ describe('origin-first tracker discovery (#614)', () => {
     expect(result.stdout.trim()).toBe(PRODUCT)
   })
 
+  it('uses origin when an unpinned YAML mapping contains an anchor and alias', async () => {
+    const yaml = 'settings: &base { branch: main }\ncopy: *base\n'
+    const result = await resolveRepo(setup({ single: true, yaml }))
+    expect(result.code).toBe(0)
+    expect(result.stdout.trim()).toBe(PRODUCT)
+  })
+
   it('honors the environment pin without reading invalid project YAML', async () => {
     const result = await resolveRepo(setup({ yaml: 'github_repo: "unterminated\n' }, { GITHUB_REPO: 'Pin/env' }))
     expect(result.code).toBe(0)
