@@ -16,29 +16,24 @@ import { ConfigError } from '../domain/errors'
  */
 const DEV_CORE_YML = '.dev/dev-core.yml'
 
-function parseRepoConfig(yaml: string, allowEmpty = false): Record<string, unknown> | undefined {
+function parseRepoConfig(yaml: string): Record<string, unknown> | undefined {
   let document: unknown
   try {
     document = Bun.YAML.parse(yaml)
   } catch {
     throw new ConfigError(`Cannot parse ${DEV_CORE_YML}. Set GITHUB_REPO or correct the YAML.`)
   }
-  if ((document === null || document === undefined) && allowEmpty) return undefined
+  if (document === null || document === undefined) {
+    const empty = yaml.split(/\r\n?|\n/).every((line) => {
+      const text = line.trimStart()
+      return !text || text.startsWith('#')
+    })
+    if (empty) return undefined
+  }
   if (!document || typeof document !== 'object' || Array.isArray(document)) {
     throw new ConfigError(`${DEV_CORE_YML} must contain a single YAML mapping. Set GITHUB_REPO or correct the YAML.`)
   }
   return document as Record<string, unknown>
-}
-
-// Preserve offsets for renaming the candidate in the original YAML. If a
-// line has quotes, leave its inline comment alone rather than guess at syntax.
-function maskYamlComments(yaml: string): string {
-  return yaml.replace(/^[^\r\n]+/gm, (line) => {
-    if (line.trimStart().startsWith('#')) return ' '.repeat(line.length)
-    if (line.includes("'") || line.includes('"')) return line
-    const comment = line.search(/\s#/)
-    return comment === -1 ? line : line.slice(0, comment) + ' '.repeat(line.length - comment)
-  })
 }
 
 function repoPin(): unknown {
@@ -52,25 +47,41 @@ function repoPin(): unknown {
     return undefined
   }
 
-  // Bun silently overwrites duplicate mapping keys. Require the pin to
-  // come from the sole literal spelling, not a second, escaped key.
   const key = 'github_repo'
-  const uncommented = maskYamlComments(yaml)
-  const tokens = uncommented.matchAll(/(?<![A-Za-z0-9_-])github_repo(?![A-Za-z0-9_-])/g)
-  const first = tokens.next().value?.index
-  if (!tokens.next().done) {
-    throw new ConfigError(`${DEV_CORE_YML} mentions github_repo more than once. Set GITHUB_REPO or remove duplicates.`)
-  }
-  const document = parseRepoConfig(yaml, !uncommented.trim())
+  const document = parseRepoConfig(yaml)
   if (!document || !Object.hasOwn(document, key)) return undefined
-  const renamed =
-    first === undefined
-      ? undefined
-      : parseRepoConfig(`${yaml.slice(0, first)}triage_repo_pin_check${yaml.slice(first + key.length)}`)
-  if (!renamed || Object.hasOwn(renamed, key)) {
-    throw new ConfigError(`${DEV_CORE_YML} requires one literal github_repo key. Set GITHUB_REPO or correct the YAML.`)
-  }
   const value = document[key]
+
+  // Bun silently overwrites duplicate YAML keys. Find the unique spelling
+  // whose rename moves the parsed key without changing its value.
+  let suffix = 0
+  let sentinel: string
+  do {
+    sentinel = `triage${suffix.toString(36).padStart(5, '0')}`
+    suffix += 1
+  } while (yaml.includes(sentinel) || Object.hasOwn(document, sentinel))
+
+  let keyMatches = 0
+  for (const { index } of yaml.matchAll(/(?<![A-Za-z0-9_-])github_repo(?![A-Za-z0-9_-])/g)) {
+    let renamed: Record<string, unknown> | undefined
+    try {
+      renamed = parseRepoConfig(`${yaml.slice(0, index)}${sentinel}${yaml.slice(index + key.length)}`)
+    } catch {
+      continue
+    }
+    if (
+      renamed &&
+      !Object.hasOwn(renamed, key) &&
+      Object.hasOwn(renamed, sentinel) &&
+      Object.is(renamed[sentinel], value)
+    ) {
+      keyMatches += 1
+      if (keyMatches > 1) break
+    }
+  }
+  if (keyMatches !== 1) {
+    throw new ConfigError(`Ambiguous github_repo key in ${DEV_CORE_YML}. Set GITHUB_REPO or use one literal key.`)
+  }
   return value === '' || value === null ? undefined : value
 }
 

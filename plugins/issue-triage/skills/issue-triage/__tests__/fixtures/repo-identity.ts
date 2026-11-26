@@ -62,15 +62,23 @@ export const invalidRepoYaml = [
   ['duplicate flow pin keys', '{ github_repo: Pin/first, "github_repo": Pin/second }\n'],
   ['escaped pin key spelling', '"github\\u005frepo": Pin/yaml\n'],
   ['mixed literal and escaped pin keys', 'github_repo: Pin/first\n"github\\u005frepo": Pin/second\n'],
-  ['pin key on a quoted line with a second mention', 'github_repo: "Pin/yaml" # this is github_repo\n'],
 ] as const
 
 export const validPinYaml = [
   [
     'comments mention the key',
     '# github_repo selects the tracker\n# github_repo: Pin/unused\ngithub_repo: Pin/yaml # github_repo pin\n',
+    'Pin/yaml',
   ],
-  ['an unrelated key contains the same substring', 'previous_github_repo: Pin/unused\ngithub_repo: Pin/yaml\n'],
+  ['an unrelated key contains the token', 'previous_github_repo: Pin/unused\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
+  [
+    'an unrelated value mentions the key',
+    'notes: "Set github_repo to change the target"\ngithub_repo: "Pin/yaml"\n',
+    'Pin/yaml',
+  ],
+  ['a quoted pin has an inline comment', 'github_repo: "Pin/yaml" # this is github_repo\n', 'Pin/yaml'],
+  ['the pin value contains the key', 'github_repo: Pin/github_repo\n', 'Pin/github_repo'],
+  ['the usual sentinel is already a mapping key', 'triage00000: Pin/unused\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
 ] as const
 
 export const commentsOnlyRepoYaml = '# github_repo selects the tracker\n# github_repo: Pin/unused\n'

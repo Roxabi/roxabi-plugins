@@ -151,11 +151,11 @@ describe('origin-first tracker discovery (#614)', () => {
     expect(result.stdout.trim()).toBe('Pin/yaml')
   })
 
-  it.each(validPinYaml)('honors the YAML pin when %s', async (_name, yaml) => {
+  it.each(validPinYaml)('honors the YAML pin when %s', async (_name, yaml, pin) => {
     const fixture = setup({ yaml })
     const result = await resolveRepo(fixture)
     expect(result.code).toBe(0)
-    expect(result.stdout.trim()).toBe('Pin/yaml')
+    expect(result.stdout.trim()).toBe(pin)
     expect(repoProbes(fixture)).toEqual([])
   })
 

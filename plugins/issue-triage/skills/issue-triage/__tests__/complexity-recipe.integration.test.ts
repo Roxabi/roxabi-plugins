@@ -217,11 +217,11 @@ fi
     expect(result.called).toBe(false)
   })
 
-  it.each(validPinYaml)('uses the YAML pin when %s', (_name, yaml) => {
+  it.each(validPinYaml)('uses the YAML pin when %s', (_name, yaml, pin) => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml })
     expect(result.status).toBe(0)
-    expect(result.ghLog.trim()).toBe('issue view 42 --repo github.com/Pin/yaml --json body --jq .body')
-    expect(result.setLog).toContain('Pin/yaml set Pin/yaml#42')
+    expect(result.ghLog.trim()).toBe(`issue view 42 --repo github.com/${pin} --json body --jq .body`)
+    expect(result.setLog).toContain(`${pin} set ${pin}#42`)
   })
 
   it('uses origin when project YAML contains only comments mentioning the key', () => {
