@@ -1,7 +1,7 @@
 import type * as ChildProcess from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { CORE_SCHEMA, load as parseYaml } from 'js-yaml'
+import { load as parseYaml } from 'js-yaml'
 import { afterAll, afterEach, expect, vi } from 'vitest'
 import { unitSdkRoots } from './plugins/omp-build/testing/unit-sdk-scopes.ts'
 
@@ -31,6 +31,11 @@ vi.mock('@oh-my-pi/pi-tui/tools/task', () => ({
   oneLineLabel: () => {
     throw new Error('SDK task activity formatting is unavailable in the Node test host')
   },
+}))
+// Tests exercise real retained UI nodes without starting the Bun-only terminal host.
+vi.mock('@oh-my-pi/pi-tui/host', () => ({
+  nativeRendering: vi.fn(() => false),
+  nativeSupports: vi.fn(() => false),
 }))
 
 /**
@@ -196,8 +201,8 @@ patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
 if (typeof globalThis.Bun === 'undefined') {
   // biome-ignore lint/suspicious/noExplicitAny: bun-types makes the Bun global too complex to satisfy without any
   ;(globalThis as any).Bun = {
-    // Keep bare date scalars as strings, matching Bun instead of js-yaml's Date coercion.
-    YAML: { parse: (text: string) => parseYaml(text, { schema: CORE_SCHEMA }) },
+    // js-yaml 5's core schema is the default and keeps bare dates as strings, like Bun.
+    YAML: { parse: parseYaml },
     spawnSync: (
       cmd: string[],
       opts?: {

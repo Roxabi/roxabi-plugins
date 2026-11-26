@@ -36,10 +36,10 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
         with:
-          # The script's contract with `bun audit --json` (shape, exit pairing, skip warning)
-          # was verified on 1.4.0; a bun bump here is a reviewed diff. An exact version needs
-          # no tag lookup, so the action gets no token — it never sees the issues:write one.
-          bun-version: 1.4.0
+          # Verified on 1.4.5 with scripts/__tests__/dependency-audit.test.ts and local
+          # `bun audit --json` runs against npm and a failing scoped registry. An exact version
+          # needs no tag lookup, so the action gets no token — it never sees the issues:write one.
+          bun-version: 1.4.5
           token: ''
       # No full `bun install`: the script imports nothing, and no dependency postinstall
       # may run next to an issues:write token. Nothing installed also keeps the bun pin

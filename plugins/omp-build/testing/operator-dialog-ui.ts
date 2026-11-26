@@ -1,4 +1,7 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import type { KeyEvent } from '@oh-my-pi/pi-tui'
+import { decodeInput } from '@oh-my-pi/pi-tui/driver/input/decoder'
+import { isUiNode, type UiNode } from '@oh-my-pi/pi-tui/node'
 import type { OperatorChoice } from '../omp/omp-operator-confirmation-input.ts'
 
 /** One fictional root identity with the stable live mappings required by the real confirmation port. */
@@ -19,7 +22,7 @@ export function operatorRootContext(cwd: string, protocol: { getArtifactsDir(): 
 
 /** Default host keybindings used by the custom UI test seam. */
 export const operatorDialogKeybindings = {
-  matches(data: string, id: string): boolean {
+  matches(key: KeyEvent, id: string): boolean {
     const bindings: Record<string, string[]> = {
       'tui.select.cancel': ['\u001b', '\u0003'],
       'tui.select.confirm': ['\r', '\n'],
@@ -31,8 +34,48 @@ export const operatorDialogKeybindings = {
       'tui.select.pageUp': ['\u001b[5~'],
       'tui.select.pageDown': ['\u001b[6~'],
     }
-    return bindings[id]?.includes(data) ?? false
+    return bindings[id]?.includes(key.raw) ?? false
   },
+}
+
+export function sendDialogInput(view: UiNode, data: string): void {
+  for (const event of decodeInput(data)) {
+    if (event.type === 'key') view.handlers.onKey?.(event.key)
+    if (event.type === 'paste') view.handlers.onPaste?.(event.paste)
+  }
+}
+
+type CustomFactory = Parameters<ExtensionContext['ui']['custom']>[0]
+type CustomOptions = Parameters<ExtensionContext['ui']['custom']>[1]
+
+function mountTerminalDialog(
+  factory: CustomFactory,
+  options: CustomOptions,
+  terminal: { columns: number; rows: number },
+) {
+  const result = Promise.withResolvers<unknown>()
+  const signal = options?.signal
+  const abort = () => finish(() => result.reject(signal?.reason))
+  const finish = (settle: () => void) => {
+    signal?.removeEventListener('abort', abort)
+    canvas.dispose()
+    settle()
+  }
+  const output = factory(
+    { size: () => terminal, requestRender() {}, suspend: (run) => run() },
+    {} as never,
+    operatorDialogKeybindings as never,
+    (value) => finish(() => result.resolve(value)),
+  )
+  if (!isUiNode(output) || output.kind !== 'canvas') throw new Error('Expected a terminal confirmation canvas')
+  const canvas = output as UiNode<'canvas'>
+  if (signal?.aborted) abort()
+  else signal?.addEventListener('abort', abort, { once: true })
+  const view: MountedOperatorDialog = {
+    render: (width) => canvas.props().paint(width),
+    handleInput: (data) => sendDialogInput(canvas, data),
+  }
+  return { view, result: result.promise }
 }
 
 function readDialog(view: MountedOperatorDialog, width: number): string {
@@ -52,16 +95,9 @@ export function operatorDialogUi(
   onDisplay?: (text: string) => void,
   onDetails?: (text: string) => void,
 ): ExtensionContext['ui'] {
-  const custom = async (factory: Parameters<ExtensionContext['ui']['custom']>[0]) => {
-    const result = Promise.withResolvers<unknown>()
+  const custom = async (factory: CustomFactory, options: CustomOptions) => {
     const terminal = { rows: 18, columns: 80 }
-    const tui = { terminal, requestRender: () => undefined }
-    let mounted: MountedOperatorDialog | undefined
-    const finish = (value: unknown) => {
-      mounted?.dispose?.()
-      result.resolve(value)
-    }
-    mounted = await factory(tui as never, {} as never, operatorDialogKeybindings as never, finish)
+    const { view: mounted, result } = mountTerminalDialog(factory, options, terminal)
     if (onDisplay) onDisplay(readDialog(mounted, terminal.columns))
     else mounted.render(terminal.columns)
     if (onDetails) {
@@ -72,7 +108,7 @@ export function operatorDialogUi(
     }
     const choice = await decide()
     mounted.handleInput?.(choice === 'confirm' ? 'c' : choice === 'refuse' ? 'r' : '\u001b')
-    return result.promise
+    return result
   }
   return { custom } as unknown as ExtensionContext['ui']
 }
@@ -80,7 +116,6 @@ export function operatorDialogUi(
 export type MountedOperatorDialog = {
   render(width: number): readonly string[]
   handleInput?(input: string): void
-  dispose?(): void
 }
 
 /** Mount each real dialog and leave input to the test. No auto key, no viewport claim. */
@@ -92,25 +127,13 @@ export function manualOperatorDialog(): {
   const views: MountedOperatorDialog[] = []
   const waiters: Array<(view: MountedOperatorDialog) => void> = []
   let delivered = 0
-  const custom = async (factory: Parameters<ExtensionContext['ui']['custom']>[0]) => {
-    const result = Promise.withResolvers<unknown>()
-    const terminal = { rows: 18, columns: 80 }
-    let mounted: MountedOperatorDialog | undefined
-    const finish = (value: unknown) => {
-      mounted?.dispose?.()
-      result.resolve(value)
-    }
-    mounted = await factory(
-      { terminal, requestRender: () => undefined } as never,
-      {} as never,
-      operatorDialogKeybindings as never,
-      finish,
-    )
+  const custom = async (factory: CustomFactory, options: CustomOptions) => {
+    const { view: mounted, result } = mountTerminalDialog(factory, options, { rows: 18, columns: 80 })
     mounted.render(80)
     views.push(mounted)
     const waiter = waiters.shift()
     if (waiter) waiter(mounted)
-    return result.promise
+    return result
   }
   return {
     ui: { custom } as unknown as ExtensionContext['ui'],

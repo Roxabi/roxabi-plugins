@@ -1,9 +1,9 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
-import type { Component } from '@oh-my-pi/pi-tui'
-import type { DescribeContext } from '@oh-my-pi/pi-tui/native/node'
-import { describe, expect, it } from 'vitest'
+import { nativeRendering, nativeSupports } from '@oh-my-pi/pi-tui/host'
+import { isUiNode, type UiNode } from '@oh-my-pi/pi-tui/node'
+import { describe, expect, it, vi } from 'vitest'
 import type { PreparedOperatorProposal } from '../../roxabi/uw-contract.ts'
-import { operatorDialogKeybindings } from '../../testing/operator-dialog-ui.ts'
+import { operatorDialogKeybindings, sendDialogInput } from '../../testing/operator-dialog-ui.ts'
 import { showOperatorProposal } from '../omp-operator-confirmation-dialog.ts'
 import type { OperatorChoice } from '../omp-operator-confirmation-input.ts'
 import { proposalSummary } from '../omp-operator-confirmation-summary.ts'
@@ -19,20 +19,30 @@ const proposal = {
   },
 } as unknown as PreparedOperatorProposal
 
-type View = Pick<Component, 'render' | 'handleInput' | 'describe' | 'describeScreen' | 'handleNativeEvent'>
-function mount(prepared: PreparedOperatorProposal = proposal) {
-  let view!: View
+function mount(prepared: PreparedOperatorProposal = proposal, native = false, buttons = true) {
+  let node!: UiNode
   const terminal = { columns: 80, rows: 18 }
   const result = Promise.withResolvers<OperatorChoice>()
   const decisions: OperatorChoice[] = []
   const ui = {
-    custom: (
-      factory: (tui: unknown, theme: unknown, keys: unknown, done: (choice: OperatorChoice) => void) => View,
-    ) => {
-      view = factory({ terminal, requestRender() {} }, {}, operatorDialogKeybindings, (value) => {
-        decisions.push(value)
-        result.resolve(value)
-      })
+    custom: (factory: Parameters<ExtensionContext['ui']['custom']>[0]) => {
+      vi.mocked(nativeRendering).mockReturnValueOnce(native)
+      vi.mocked(nativeSupports).mockReturnValue(buttons)
+      try {
+        const view = factory(
+          { size: () => terminal, requestRender() {}, suspend: (run) => run() },
+          {} as never,
+          operatorDialogKeybindings as never,
+          (value) => {
+            decisions.push(value as OperatorChoice)
+            result.resolve(value as OperatorChoice)
+          },
+        )
+        if (!isUiNode(view)) throw new Error('Expected the focused confirmation node')
+        node = view
+      } finally {
+        vi.mocked(nativeSupports).mockReset()
+      }
       return result.promise
     },
   }
@@ -43,39 +53,35 @@ function mount(prepared: PreparedOperatorProposal = proposal) {
     'local://exact',
     controller.signal,
   )
-  return { view, terminal, choice, decisions }
-}
-
-type NativeAction = { view: View; act: string; key: string }
-
-/** Consume the advertised actions, including component children in the fixed native surface. */
-function nativeActions(view: View, node: unknown, cx?: DescribeContext): NativeAction[] {
-  if (Array.isArray(node)) return node.flatMap((child) => nativeActions(view, child, cx))
-  if (typeof node !== 'object' || node === null) return []
-  const candidate = node as View & {
-    key?: string
-    p?: { disabled?: unknown; actions?: { click?: string } }
-    c?: unknown[]
+  const view = {
+    render(width: number): readonly string[] {
+      if (node.kind !== 'canvas') throw new Error('Expected a terminal confirmation canvas')
+      return (node as UiNode<'canvas'>).props().paint(width)
+    },
+    handleInput: (data: string) => sendDialogInput(node, data),
   }
-  if (cx && typeof candidate.describe === 'function') return nativeActions(candidate, candidate.describe(cx), cx)
-  const act = candidate.p?.actions?.click
-  return [
-    ...(act && !candidate.p?.disabled ? [{ view, act, key: candidate.key ?? '' }] : []),
-    ...(candidate.c ?? []).flatMap((child) => nativeActions(view, child, cx)),
-  ]
+  return { node, view, terminal, choice, decisions }
 }
 
-function clickNative(view: View, node: unknown, act: string): boolean {
-  const action = nativeActions(view, node).find((candidate) => candidate.act === act)
-  action?.view.handleNativeEvent?.({ type: 'action', key: action.key, act, mods: [] })
-  return action !== undefined
+function nativeActions(node: UiNode | undefined): { node: UiNode; act: string }[] {
+  if (!node) return []
+  const { actions } = node.props()
+  return [...(actions?.click ? [{ node, act: actions.click }] : []), ...node.children().flatMap(nativeActions)]
 }
 
-function nativeText(node: unknown): string {
-  if (Array.isArray(node)) return node.map(nativeText).join('\n')
-  if (typeof node !== 'object' || node === null) return ''
-  const candidate = node as { p?: { text?: unknown }; c?: unknown[] }
-  return [typeof candidate.p?.text === 'string' ? candidate.p.text : '', nativeText(candidate.c)].join('\n')
+function clickNative(node: UiNode, act: string): boolean {
+  const action = nativeActions(node).find((candidate) => candidate.act === act)
+  const click = action?.node.handlers.onAction
+  click?.(act, { type: 'action', key: action?.node.key() ?? '', act, mods: [] })
+  return click !== undefined
+}
+
+function nativeText(node: UiNode | undefined): string {
+  if (!node) return ''
+  const props = node.props()
+  return ['text' in props && typeof props.text === 'string' ? props.text : '', ...node.children().map(nativeText)].join(
+    '\n',
+  )
 }
 
 function longProposal(): PreparedOperatorProposal {
@@ -338,15 +344,12 @@ describe('operator dialog input and viewport', () => {
       origin: null,
       decision: { kind: 'new', target: { kind: 'new', draftKey: 'draft' }, reason },
     })
-    const mounted = mount(framing)
-    const cx = { cols: 80, supports: () => true } as unknown as DescribeContext
-    const overview = mounted.view.describeScreen?.(cx)
-    expect(nativeText(overview?.main)).toContain(JSON.stringify(`C8 — ${statement}`))
-    expect(nativeText(overview?.main)).not.toContain(JSON.stringify(reason))
-    const detailsAction = nativeActions(mounted.view, overview?.dock, cx).find((action) => action.act === 'details')
-    if (!detailsAction) throw new Error('Expected a native details action')
-    detailsAction.view.handleNativeEvent?.({ type: 'action', key: detailsAction.key, act: detailsAction.act, mods: [] })
-    const nativeAudit = nativeText(mounted.view.describeScreen?.(cx)?.main).split('Proposition exacte (JSON)')[0]
+    const mounted = mount(framing, true)
+    const [body] = mounted.node.children()
+    expect(nativeText(body)).toContain(JSON.stringify(`C8 — ${statement}`))
+    expect(nativeText(body)).not.toContain(JSON.stringify(reason))
+    expect(clickNative(mounted.node, 'details')).toBe(true)
+    const nativeAudit = nativeText(body).split('Proposition exacte (JSON)')[0]
     expect(nativeAudit).toContain(`  Ajouté → "C8" ; motif : ${JSON.stringify(reason)}`)
     expect(nativeAudit).not.toContain(JSON.stringify(`C8 — ${statement}`))
     mounted.view.handleInput?.('\u001b')
@@ -370,7 +373,8 @@ describe('operator dialog input and viewport', () => {
     const mounted = mount()
     mounted.view.handleInput?.('c')
     mounted.view.render(80)
-    mounted.view.handleInput?.('\u001b[200~c\u001b[201~')
+    mounted.view.handleInput('\u001b[200~c\u001b[201~\r')
+    expect(mounted.decisions).toEqual([])
     mounted.view.handleInput?.('\r')
     await expect(mounted.choice).resolves.toBe('defer')
   })
@@ -388,32 +392,32 @@ describe('operator dialog input and viewport', () => {
     await expect(mounted.choice).resolves.toBe('refuse')
   })
 
-  it('accepts the first native confirmation after a height-only reflow without a new description', async () => {
-    const mounted = mount()
-    const description = mounted.view.describe?.({ cols: 80, supports: () => true } as unknown as DescribeContext)
+  it('waits for the native frame and accepts the first confirmation after a height-only reflow', async () => {
+    const mounted = mount(proposal, true)
+    const [, dock] = mounted.node.children()
+    mounted.view.handleInput('c')
+    expect(mounted.decisions).toEqual([])
+    const confirm = nativeActions(dock).find(({ act }) => act === 'confirm')
+    if (!confirm) throw new Error('The native frame did not display a confirmation action')
     mounted.terminal.rows = 10
-    expect(clickNative(mounted.view, description, 'confirm')).toBe(true)
+    expect(clickNative(confirm.node, 'confirm')).toBe(true)
     await expect(mounted.choice).resolves.toBe('confirm')
   })
 
   it.each([true, false])(
     'vetoes an unsafe native click and accepts the first click after height recovery (buttons=%s)',
     async (buttons) => {
-      const mounted = mount()
+      const mounted = mount(proposal, true, buttons)
       mounted.terminal.rows = 2
-      const description = mounted.view.describe?.({
-        cols: 80,
-        supports: () => buttons,
-      } as unknown as DescribeContext)
       let resolved: OperatorChoice | undefined
       void mounted.choice.then((choice) => {
         resolved = choice
       })
-      expect(clickNative(mounted.view, description, 'confirm')).toBe(true)
+      expect(clickNative(mounted.node, 'confirm')).toBe(true)
       await Promise.resolve()
       expect(resolved).toBeUndefined()
       mounted.terminal.rows = 10
-      expect(clickNative(mounted.view, description, 'refuse')).toBe(true)
+      expect(clickNative(mounted.node, 'refuse')).toBe(true)
       await expect(mounted.choice).resolves.toBe('refuse')
     },
   )
@@ -489,13 +493,14 @@ describe('operator dialog input and viewport', () => {
   })
 
   it.each([true, false])('consumes the fixed native action surface with long content (buttons=%s)', async (buttons) => {
-    const cx = { cols: 39, supports: () => buttons } as unknown as DescribeContext
     const open = () => {
-      const mounted = mount(longProposal())
+      const mounted = mount(longProposal(), true, buttons)
       mounted.terminal.columns = 39
       mounted.terminal.rows = 11
-      const screen = mounted.view.describeScreen?.(cx)
-      return { ...mounted, screen, actions: nativeActions(mounted.view, screen?.dock, cx) }
+      const [body, dock] = mounted.node.children()
+      const actions = nativeActions(dock)
+      expect(actions.every(({ node }) => node.kind === (buttons ? 'button' : 'row'))).toBe(true)
+      return { ...mounted, body, actions }
     }
     const reference = open()
     const acts = reference.actions.map((action) => action.act)
@@ -505,14 +510,14 @@ describe('operator dialog input and viewport', () => {
     let toggles = 0
     for (const act of acts) {
       const mounted = open()
-      const action = mounted.actions.find((candidate) => candidate.act === act)
-      action?.view.handleNativeEvent?.({ type: 'action', key: action.key, act, mods: [] })
+      const original = nativeText(mounted.body)
+      expect(clickNative(mounted.node, act)).toBe(true)
       if (mounted.decisions.length) {
         outcomes.push(...mounted.decisions)
       } else {
-        expect(nativeText(mounted.view.describeScreen?.(cx)?.main)).toContain('local://exact')
-        action?.view.handleNativeEvent?.({ type: 'action', key: action.key, act, mods: [] })
-        expect(nativeText(mounted.view.describeScreen?.(cx)?.main)).toBe(nativeText(mounted.screen?.main))
+        expect(nativeText(mounted.body)).toContain('local://exact')
+        expect(clickNative(mounted.node, act)).toBe(true)
+        expect(nativeText(mounted.body)).toBe(original)
         mounted.view.handleInput?.('\u001b')
         toggles += 1
       }

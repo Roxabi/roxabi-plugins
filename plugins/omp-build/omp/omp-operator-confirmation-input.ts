@@ -1,4 +1,5 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
+import type { KeyEvent } from '@oh-my-pi/pi-tui'
 
 export type OperatorChoice = 'confirm' | 'refuse' | 'defer'
 
@@ -35,12 +36,12 @@ const bindings: ReadonlyArray<readonly [Parameters<Bindings['matches']>[1], Dial
   ['tui.select.pageDown', 'pageDown'],
 ]
 
-export function operatorDialogInput(data: string, keys: Bindings): DialogInput {
-  if (data.startsWith('\u001b[200~')) return 'none'
-  if (keys.matches(data, 'tui.select.cancel')) return 'cancel'
-  if (Object.hasOwn(shortcuts, data)) return shortcuts[data] ?? 'none'
+export function operatorDialogInput(key: KeyEvent, keys: Bindings): DialogInput {
+  if (key.kind === 'release' || key.afterPaste) return 'none'
+  if (keys.matches(key, 'tui.select.cancel')) return 'cancel'
+  if (key.text && Object.hasOwn(shortcuts, key.text)) return shortcuts[key.text] ?? 'none'
   for (const [binding, action] of bindings) {
-    if (keys.matches(data, binding)) return action
+    if (keys.matches(key, binding)) return action
   }
   return 'none'
 }
@@ -55,7 +56,7 @@ export type ConfirmationMotion = {
   scroll: ConfirmationScroll | undefined
 }
 
-export function resetDetails(state: ConfirmationMotion): void {
+function resetDetails(state: ConfirmationMotion): void {
   state.technical = !state.technical
   state.offset = 0
   state.scroll = { by: 'start', n: (state.scroll?.n ?? 0) + 1 }
@@ -112,20 +113,4 @@ export function commitDialogInput(
   const choice = applyDialogInput(state, input)
   if (choice) finish(choice)
   return choice === undefined
-}
-
-export function commitNativeAct(act: string, canDecide: boolean, finish: (choice: OperatorChoice) => void): boolean {
-  switch (act) {
-    case 'defer':
-      finish('defer')
-      return false
-    case 'confirm':
-    case 'refuse':
-      if (canDecide) finish(act)
-      return false
-    case 'details':
-      return canDecide
-    default:
-      return false
-  }
 }

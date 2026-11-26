@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.21 (unreleased)
+
+- Require Oh My Pi 19.2.1 peers.
+
 ## 0.21.20 (unreleased)
 
 - Retire `/uw action` before request, file or pin reads and remove local dossiers, generic action-input replay and captured-work inventory production (#1046 C4). Keep `/uw evidence`, `/uw verdicts`, and historical assessment, review, correction and cause reads.
