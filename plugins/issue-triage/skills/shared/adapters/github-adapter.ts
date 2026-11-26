@@ -21,7 +21,8 @@ const GRAPHQL_URL = `${GITHUB_API}/graphql`
 
 // --- Standalone helper functions ---
 
-import { detectGitHubRepo, REPO_SLUG_RE } from './config-helpers'
+import { REPO_SLUG_RE } from '../domain/repo-slug'
+import { detectGitHubRepo } from './config-helpers'
 
 function githubCliRepo(repo: string): string {
   const slug = repo.replace(/^github\.com\//i, '')

@@ -49,6 +49,10 @@ export const refusedOrigins = [
   ['GitHub HTTPS URI with a malformed path escape', 'https://github.com/%6Zcme/product.git'],
   ['GitHub HTTPS URI with a double-encoded path', 'https://github.com/%2541cme/product.git'],
   ['GitHub SSH URI with an encoded path separator', 'ssh://git@github.com/An%2FAcme/product.git'],
+  ['SCP origin with the dot repo name', 'git@github.com:Acme/..git'],
+  ['SSH origin with the dot-dot repo name', 'ssh://git@github.com/Acme/...git'],
+  ['SCP origin named only .git', 'git@github.com:Acme/.git'],
+  ['HTTPS origin for a reserved .git repo', 'https://github.com/Acme/.git.git'],
 ] as const
 
 export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string; yaml?: string }

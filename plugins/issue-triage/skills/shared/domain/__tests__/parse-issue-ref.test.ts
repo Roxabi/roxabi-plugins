@@ -15,6 +15,14 @@ describe('parseIssueRef', () => {
     expect(parseIssueRef('Roxabi/docs.site#12')).toEqual({ repo: 'Roxabi/docs.site', number: 12 })
   })
 
+  it('accepts an organization profile repo as a cross-repo issue reference', () => {
+    expect(parseIssueRef('github/.github#12')).toEqual({ repo: 'github/.github', number: 12 })
+  })
+
+  it.each(['.', '..', '.git', 'x'.repeat(101)])('rejects the invalid repo segment %s', (name) => {
+    expect(parseIssueRef(`github/${name}#12`)).toBeUndefined()
+  })
+
   it('rejects incomplete refs', () => {
     expect(parseIssueRef('')).toBeUndefined()
     expect(parseIssueRef('abc')).toBeUndefined()

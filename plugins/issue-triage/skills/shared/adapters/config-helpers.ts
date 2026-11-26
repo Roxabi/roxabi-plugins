@@ -6,6 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { ConfigError } from '../domain/errors'
+import { REPO_SLUG_RE } from '../domain/repo-slug'
 
 /**
  * Project contract file, relative to the repo root.
@@ -29,15 +30,6 @@ function repoPin(): string | undefined {
   }
   return undefined
 }
-
-/**
- * A GitHub repo slug: exactly `owner/repo`.
- * Owner: alphanumeric + hyphen, must start with an alphanumeric character
- * (GitHub username rule — dots/underscores not allowed in owner segment).
- * Name: allows dots/underscores after a leading alphanumeric character.
- * Callers do `detectGitHubRepo().split('/')` and expect exactly two non-empty segments.
- */
-export const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 export function sameGitHubRepo(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
@@ -112,7 +104,7 @@ const HTTPS_ORIGIN =
   /^https:\/\/(?:(?:[A-Za-z0-9._~!$&'()*+,;=:-]|%[0-9A-Fa-f]{2})+@)?([A-Za-z0-9.-]+)(?::([0-9]+))?\/((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+\/(?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)(\/?)$/
 const SSH_ORIGIN =
   /^ssh:\/\/(?:((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)@)?([A-Za-z0-9._-]+)(?::([0-9]+))?\/((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+\/(?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)\/?$/
-const SCP_ORIGIN = /^(?:([A-Za-z0-9._-]+)@)?([A-Za-z0-9._-]+):([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)$/
+const SCP_ORIGIN = /^(?:([A-Za-z0-9._-]+)@)?([A-Za-z0-9._-]+):([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)$/
 
 function decodeUriPart(value: string): string | undefined {
   try {

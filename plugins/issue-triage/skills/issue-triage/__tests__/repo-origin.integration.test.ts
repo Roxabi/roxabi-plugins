@@ -112,6 +112,7 @@ describe('origin-first tracker discovery (#614)', () => {
     ['github_repo', `https://github.com/${PRODUCT}.git`, 'Pin/yaml', {}],
     ['GITHUB_REPO', 'git@gitlab.com:acme/product.git', 'Pin/env', { GITHUB_REPO: 'Pin/env' }],
     ['github_repo', 'git@gitlab.com:acme/product.git', 'Pin/yaml', {}],
+    ['GITHUB_REPO', `https://github.com/${PRODUCT}.git`, 'github/.github', { GITHUB_REPO: 'github/.github' }],
   ] as const)('honors the %s pin over %s', async (_name, origin, repo, env) => {
     const fixture = setup({ yamlPin: 'Pin/yaml', origin }, env)
     const result = await resolveRepo(fixture)
@@ -226,6 +227,15 @@ describe('origin-first tracker discovery (#614)', () => {
     expect(result.stdout.trim()).toBe(PRODUCT)
     expect(result.stderr).toBe('')
   })
+
+  it.each(['git@github.com:github/.github.git', 'https://github.com/github/.github.git/'])(
+    'resolves the organization profile repository from %s',
+    async (origin) => {
+      const result = await resolveRepo(setup({ origin, single: true }))
+      expect(result.code).toBe(0)
+      expect(result.stdout.trim()).toBe('github/.github')
+    },
+  )
 
   it.each(refusedOrigins)('refuses %s without falling back to gh or disclosing credentials', async (_name, origin) => {
     const fixture = setup({ origin })

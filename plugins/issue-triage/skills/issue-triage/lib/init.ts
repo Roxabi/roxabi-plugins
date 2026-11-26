@@ -29,7 +29,7 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { detectGitHubRepo, REPO_SLUG_RE, sameGitHubRepo } from '../../shared/adapters/config-helpers'
+import { detectGitHubRepo, sameGitHubRepo } from '../../shared/adapters/config-helpers'
 import {
   ensureLabel,
   listEnabledOrgIssueTypes,
@@ -38,6 +38,7 @@ import {
   updateLabels,
 } from '../../shared/adapters/github-adapter'
 import { EXTENDED_ISSUE_TYPES, ISSUE_TYPE_NAMES } from '../../shared/domain/issue-types'
+import { REPO_SLUG_RE } from '../../shared/domain/repo-slug'
 import {
   applyRelabels,
   CANONICAL_LABELS,

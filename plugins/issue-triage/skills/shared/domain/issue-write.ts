@@ -5,7 +5,7 @@
  * repository discovery and UW policy. Consumers supply the repository and the
  * complete reader/mutation primitives explicitly.
  */
-const REPOSITORY_SLUG = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
+import { REPO_SLUG_RE } from './repo-slug'
 
 export type IssueRef = {
   repository: string
@@ -134,7 +134,7 @@ function diagnostic(code: string, message: string, issue?: IssueRef): WriteDiagn
 }
 
 function validateRef(ref: IssueRef, field: string): WriteDiagnostic | undefined {
-  if (!ref || typeof ref !== 'object' || !REPOSITORY_SLUG.test(ref.repository)) {
+  if (!ref || typeof ref !== 'object' || !REPO_SLUG_RE.test(ref.repository)) {
     return diagnostic('write-invalid-reference', `${field} has an invalid repository reference`)
   }
   if (!Number.isSafeInteger(ref.number) || ref.number < 1) {
@@ -177,7 +177,7 @@ function validateLabels(labels: NativeIssueWritePlan['labels']): WriteDiagnostic
 }
 
 function validatePlan(plan: NativeIssueWritePlan, requiresTitle: boolean): WriteDiagnostic | undefined {
-  if (!plan || typeof plan !== 'object' || !REPOSITORY_SLUG.test(plan.repository)) {
+  if (!plan || typeof plan !== 'object' || !REPO_SLUG_RE.test(plan.repository)) {
     return diagnostic('write-invalid-plan', 'Plan repository must be an owner/repository slug')
   }
   if (typeof plan.body !== 'string') return diagnostic('write-invalid-plan', 'Plan body must be a string')

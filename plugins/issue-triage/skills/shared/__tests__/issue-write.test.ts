@@ -368,7 +368,7 @@ describe('createIssueWriter', () => {
 
   it('writes every asserted native effect, including a cross-repository parent, then reads it back', async () => {
     const subject = observation(1, { labels: ['old'], children: [issue(3)], blockers: [issue(4)] })
-    const parent = observation(2, { issue: issue(2, 'Other/repo') })
+    const parent = observation(2, { issue: issue(2, 'Other/.github') })
     const oldChild = observation(3)
     const blocker = observation(4)
     const child = observation(5)
@@ -377,7 +377,7 @@ describe('createIssueWriter', () => {
       title: 'Renamed',
       labels: { add: ['new'], remove: ['old'] },
       relations: {
-        parent: issue(2, 'Other/repo'),
+        parent: issue(2, 'Other/.github'),
         addChildren: [issue(5)],
         removeChildren: [issue(3)],
         addBlockers: [issue(5)],
@@ -392,7 +392,7 @@ describe('createIssueWriter', () => {
       title: 'Renamed',
       body: 'Replacement body',
       labels: ['new'],
-      parent: issue(2, 'Other/repo'),
+      parent: issue(2, 'Other/.github'),
       children: [issue(5)],
       blockers: [issue(5)],
     })
