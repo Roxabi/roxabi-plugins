@@ -215,6 +215,13 @@ fi
     expect(result.called).toBe(false)
   })
 
+  it('uses origin when project YAML contains only a comment', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml: '# Project configuration\n' })
+    expect(result.status).toBe(0)
+    expect(result.ghLog.trim()).toBe(`issue view 42 --repo github.com/${PRODUCT} --json body --jq .body`)
+    expect(result.setLog).toContain(`${PRODUCT} set ${PRODUCT}#42`)
+  })
+
   it.each(supportedOrigins)('uses %s for both read and write without probing gh repo view', (_name, origin) => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { origin })
     expect(result.status).toBe(0)

@@ -143,11 +143,20 @@ describe('origin-first tracker discovery (#614)', () => {
     expect(repoProbes(fixture)).toEqual([])
   })
 
-  it('uses origin when a single project YAML mapping has no tracker pin', async () => {
-    const result = await resolveRepo(setup({ single: true, yaml: 'unrelated: setting\n' }))
+  it('accepts one literal pin in a YAML flow mapping', async () => {
+    const result = await resolveRepo(setup({ yaml: '{ "github_repo": Pin/yaml }\n' }))
     expect(result.code).toBe(0)
-    expect(result.stdout.trim()).toBe(PRODUCT)
+    expect(result.stdout.trim()).toBe('Pin/yaml')
   })
+
+  it.each(['unrelated: setting\n', '# Project configuration\n', ''])(
+    'uses origin when YAML has no pin (%j)',
+    async (yaml) => {
+      const result = await resolveRepo(setup({ single: true, yaml }))
+      expect(result.code).toBe(0)
+      expect(result.stdout.trim()).toBe(PRODUCT)
+    },
+  )
 
   it('honors the environment pin without reading invalid project YAML', async () => {
     const result = await resolveRepo(setup({ yaml: 'github_repo: "unterminated\n' }, { GITHUB_REPO: 'Pin/env' }))

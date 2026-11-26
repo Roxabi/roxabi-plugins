@@ -16,6 +16,20 @@ import { ConfigError } from '../domain/errors'
  */
 const DEV_CORE_YML = '.dev/dev-core.yml'
 
+function parseRepoConfig(yaml: string): Record<string, unknown> | undefined {
+  let document: unknown
+  try {
+    document = Bun.YAML.parse(yaml)
+  } catch {
+    throw new ConfigError(`Cannot parse ${DEV_CORE_YML}. Set GITHUB_REPO or correct the YAML.`)
+  }
+  if (document === null || document === undefined) return undefined
+  if (typeof document !== 'object' || Array.isArray(document)) {
+    throw new ConfigError(`${DEV_CORE_YML} must contain a single YAML mapping. Set GITHUB_REPO or correct the YAML.`)
+  }
+  return document as Record<string, unknown>
+}
+
 function repoPin(): unknown {
   if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
 
@@ -27,17 +41,20 @@ function repoPin(): unknown {
     return undefined
   }
 
-  let document: unknown
-  try {
-    document = Bun.YAML.parse(yaml)
-  } catch {
-    throw new ConfigError(`Cannot parse ${DEV_CORE_YML}. Set GITHUB_REPO or correct the YAML.`)
+  // Bun silently overwrites duplicate mapping keys. Require the pin to
+  // come from the sole literal spelling, not a second, escaped key.
+  const key = 'github_repo'
+  const first = yaml.indexOf(key)
+  if (first !== yaml.lastIndexOf(key)) {
+    throw new ConfigError(`${DEV_CORE_YML} mentions github_repo more than once. Set GITHUB_REPO or remove duplicates.`)
   }
-  if (!document || typeof document !== 'object' || Array.isArray(document)) {
-    throw new ConfigError(`${DEV_CORE_YML} must contain a single YAML mapping. Set GITHUB_REPO or correct the YAML.`)
+  const document = parseRepoConfig(yaml)
+  if (!document || !Object.hasOwn(document, key)) return undefined
+  const renamed = first === -1 ? undefined : parseRepoConfig(yaml.replace(key, 'triage_repo_pin_check'))
+  if (!renamed || Object.hasOwn(renamed, key)) {
+    throw new ConfigError(`${DEV_CORE_YML} requires one literal github_repo key. Set GITHUB_REPO or correct the YAML.`)
   }
-  if (!Object.hasOwn(document, 'github_repo')) return undefined
-  const value = (document as Record<string, unknown>).github_repo
+  const value = document[key]
   return value === '' || value === null ? undefined : value
 }
 
@@ -120,10 +137,18 @@ function sshHostname(host: string, user?: string, port?: string): string | undef
 // Match the raw spelling before URL parsing. WHATWG normalization alone could
 // turn Git's malformed or foreign origin into a different GitHub URL.
 const HTTPS_ORIGIN =
-  /^https:\/\/(?:(?:[A-Za-z0-9._~!$&'()*+,;=:-]|%[0-9A-Fa-f]{2})+@)?([A-Za-z0-9.-]+)(?::([0-9]+))?\/([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)(\/?)$/
+  /^https:\/\/(?:(?:[A-Za-z0-9._~!$&'()*+,;=:-]|%[0-9A-Fa-f]{2})+@)?([A-Za-z0-9.-]+)(?::([0-9]+))?\/((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+\/(?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)(\/?)$/
 const SSH_ORIGIN =
-  /^ssh:\/\/(?:((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)@)?([A-Za-z0-9.-]+)(?::([0-9]+))?\/([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)\/?$/
-const SCP_ORIGIN = /^(?:([A-Za-z0-9._-]+)@)?([A-Za-z0-9.-]+):([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)$/
+  /^ssh:\/\/(?:((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)@)?([A-Za-z0-9._-]+)(?::([0-9]+))?\/((?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+\/(?:[A-Za-z0-9._-]|%[0-9A-Fa-f]{2})+)\/?$/
+const SCP_ORIGIN = /^(?:([A-Za-z0-9._-]+)@)?([A-Za-z0-9._-]+):([A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)$/
+
+function decodeUriPart(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return undefined
+  }
+}
 
 function originRepo(url: string): string | undefined {
   if (/[^\x21-\x7e]/.test(url)) return undefined
@@ -133,9 +158,10 @@ function originRepo(url: string): string | undefined {
   if (!https && !ssh && !scp) return undefined
 
   const host = (https?.[1] ?? ssh?.[2] ?? scp?.[2] ?? '').toLowerCase()
-  const path = https?.[3] ?? ssh?.[4] ?? scp?.[3] ?? ''
-  const repo = path.replace(/\.git$/, '')
-  if (!REPO_SLUG_RE.test(repo)) return undefined
+  const rawPath = https?.[3] ?? ssh?.[4] ?? scp?.[3] ?? ''
+  const path = scp ? rawPath : decodeUriPart(rawPath)
+  const repo = path?.replace(/\.git$/, '')
+  if (!repo || !REPO_SLUG_RE.test(repo)) return undefined
 
   const rawPort = https?.[2] ?? ssh?.[3]
   const port = rawPort === undefined ? undefined : Number(rawPort)
@@ -144,19 +170,14 @@ function originRepo(url: string): string | undefined {
   if (https) {
     const uri = URL.parse(url)
     const expectedPort = port === undefined || port === 443 ? '' : String(port)
-    if (uri?.hostname !== host || uri.port !== expectedPort || uri.pathname !== `/${path}${https[4]}`) return undefined
+    if (uri?.hostname !== host || uri.port !== expectedPort || uri.pathname !== `/${rawPath}${https[4]}`) {
+      return undefined
+    }
     return host === 'github.com' ? repo : undefined
   }
 
-  let user = ssh?.[1] ?? scp?.[1]
-  if (ssh?.[1]) {
-    try {
-      user = decodeURIComponent(ssh[1])
-    } catch {
-      return undefined
-    }
-    if (!/^[A-Za-z0-9._-]+$/.test(user)) return undefined
-  }
+  const user = ssh?.[1] ? decodeUriPart(ssh[1]) : scp?.[1]
+  if (ssh?.[1] && (!user || !/^[A-Za-z0-9._-]+$/.test(user))) return undefined
   const effectiveHost = sshHostname(host, user, port === undefined ? undefined : String(port))
   return effectiveHost === 'github.com' || effectiveHost === 'ssh.github.com' ? repo : undefined
 }

@@ -11,11 +11,15 @@ export const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1
 export const supportedOrigins = [
   ['literal GitHub HTTPS', 'https://GITHUB.COM/Acme/product.git/'],
   ['credentialed GitHub HTTPS', `https://user:${CREDENTIAL}@github.com/Acme/product.git`],
+  ['GitHub HTTPS with a percent-encoded path', 'https://github.com/%41cme/%70roduct%2Egit/'],
   ['literal GitHub SCP', 'git@github.com:Acme/product.git'],
   ['literal GitHub SSH on port 443', 'ssh://git@ssh.github.com:443/Acme/product.git'],
   ['GitHub SCP alias', 'git@github-work:Acme/product.git'],
+  ['GitHub SCP alias containing an underscore', 'git@github_work:Acme/product.git'],
+  ['GitHub SSH URI alias containing an underscore', 'ssh://git@github_work/Acme/product.git'],
   ['GitHub SSH alias with explicit port', 'ssh://git@github-work-port:22/Acme/product.git'],
   ['GitHub SSH alias with percent-encoded username', 'ssh://%67it@github-work-port:22/Acme/product.git'],
+  ['GitHub SSH alias with a percent-encoded path', 'ssh://git@github-work-port:22/%41cme/%70roduct.git'],
 ] as const
 
 export const refusedOrigins = [
@@ -42,6 +46,9 @@ export const refusedOrigins = [
   ['GitHub SSH URI with a malformed user escape', 'ssh://g%6Zt@github.com/Acme/product.git'],
   ['GitHub SSH URI with an encoded user delimiter', 'ssh://git%40github.com@github.com/Acme/product.git'],
   ['GitHub SSH URI with a double-encoded username', 'ssh://%2567it@github.com/Acme/product.git'],
+  ['GitHub HTTPS URI with a malformed path escape', 'https://github.com/%6Zcme/product.git'],
+  ['GitHub HTTPS URI with a double-encoded path', 'https://github.com/%2541cme/product.git'],
+  ['GitHub SSH URI with an encoded path separator', 'ssh://git@github.com/An%2FAcme/product.git'],
 ] as const
 
 export const invalidRepoYaml = [
@@ -49,6 +56,11 @@ export const invalidRepoYaml = [
   ['sequence', '- github_repo: Pin/yaml\n'],
   ['scalar', 'Pin/yaml\n'],
   ['parse error', 'github_repo: "unterminated\n'],
+  ['duplicate pin keys', 'github_repo: Pin/first\n"github_repo": Pin/second\n'],
+  ['duplicate flow pin keys', '{ github_repo: Pin/first, "github_repo": Pin/second }\n'],
+  ['escaped pin key spelling', '"github\\u005frepo": Pin/yaml\n'],
+  ['mixed literal and escaped pin keys', 'github_repo: Pin/first\n"github\\u005frepo": Pin/second\n'],
+  ['pin key mentioned in a comment', 'github_repo: Pin/yaml # this is github_repo\n'],
 ] as const
 
 export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string; yaml?: string }
@@ -81,6 +93,7 @@ case "$host" in
       *' -l git -- github-work ') host=github.com ;;
       *) host=gitlab.com ;;
     esac ;;
+  github_work) host=github.com ;;
   github-work-port)
     case " $* " in
       *' -l git -p 22 -- github-work-port ') host=github.com ;;
