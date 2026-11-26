@@ -70,6 +70,19 @@ export const invalidRepoYaml = [
   ['the pin key is an alias', 'key_name: &name github_repo\n? *name\n: Pin/yaml\n'],
   ['the pin value is an alias', 'target: &pin Pin/yaml\ngithub_repo: *pin\n'],
   ['the pin only comes from a merge', 'base: &base { github_repo: Pin/yaml }\n<<: *base\n'],
+  [
+    'an alias key precedes a literal pin',
+    'key_name: &name github_repo\n? *name\n: Other/first\ngithub_repo: Pin/second\n',
+  ],
+  [
+    'an alias key follows a literal pin',
+    'key_name: &name github_repo\ngithub_repo: Pin/first\n? *name\n: Other/second\n',
+  ],
+  [
+    'an alias key would collide after fixed replacement',
+    'xname: unused\ntriageAlias0name: unused\nkey_name: &name github_repo\n? *name\n: Other/first\ngithub_repo: Pin/second\n',
+  ],
+  ['a literal pin overrides a merge', 'base: &base { github_repo: Pin/first }\n<<: *base\ngithub_repo: Pin/second\n'],
 ] as const
 
 export const validPinYaml = [
@@ -88,9 +101,9 @@ export const validPinYaml = [
   ['a comment mentions anchor and alias syntax', '# &pin and *pin are examples\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
   ['a quoted value mentions YAML aliases', 'notes: "&pin and *pin are examples"\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
   [
-    'a literal pin overrides a merge',
-    'base: &base { github_repo: Pin/first }\n<<: *base\ngithub_repo: Pin/second\n',
-    'Pin/second',
+    'an alias supplies an unrelated value',
+    'target: &name Other/value\nnotes: *name\ngithub_repo: Pin/yaml\n',
+    'Pin/yaml',
   ],
   ['the pin value contains the key', 'github_repo: Pin/github_repo\n', 'Pin/github_repo'],
   ['a URL contains an ampersand', 'notes: https://example.com/?a=1&b=2\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],

@@ -52,19 +52,37 @@ function repoPin(): unknown {
   if (!document || !Object.hasOwn(document, key)) return undefined
   const value = document[key]
 
-  // Disable YAML alias syntax before proving the pin's literal spelling.
-  // A pin that depends on an alias cannot survive with the same value.
-  const neutral = yaml.replaceAll('*', 'x')
-  let neutralDocument: Record<string, unknown> | undefined = document
-  if (neutral !== yaml) {
+  // Remove alias syntax before checking the pin. Preserve both the value and
+  // the top-level keys so an alias key or merge cannot hide a conflicting pin.
+  let neutral = yaml
+  let neutralDocument = document
+  if (yaml.includes('*')) {
+    const keys = Object.keys(document)
+    let suffix = 0
+    let marker: string
+    do {
+      marker = `triageAlias${suffix}`
+      suffix += 1
+    } while (yaml.includes(marker) || keys.some((name) => name.includes(marker)))
+
+    neutral = yaml.replaceAll('*', marker)
+    let parsed: Record<string, unknown> | undefined
     try {
-      neutralDocument = parseRepoConfig(neutral)
+      parsed = parseRepoConfig(neutral)
     } catch {
-      neutralDocument = undefined
+      // Neutralized YAML must still be a single mapping.
     }
-  }
-  if (!neutralDocument || !Object.hasOwn(neutralDocument, key) || !Object.is(neutralDocument[key], value)) {
-    throw new ConfigError(`Alias-dependent github_repo in ${DEV_CORE_YML}. Set GITHUB_REPO or use a literal pin.`)
+    if (
+      !parsed ||
+      !Object.is(parsed[key], value) ||
+      Object.keys(parsed).length !== keys.length ||
+      !keys.every((name) => Object.hasOwn(parsed, name))
+    ) {
+      throw new ConfigError(
+        `Ambiguous github_repo in ${DEV_CORE_YML}: alias-dependent pins, alias keys, and merges are unsupported.`,
+      )
+    }
+    neutralDocument = parsed
   }
 
   // Bun silently overwrites duplicate YAML keys. Find the unique spelling
