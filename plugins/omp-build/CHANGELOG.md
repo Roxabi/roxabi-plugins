@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.22 (unreleased)
+
+- Bundle issue-triage 0.4.5 with origin-first tracker resolution (#614).
+
 ## 0.21.21 (unreleased)
 
 - Require Oh My Pi 19.2.1 peers.
