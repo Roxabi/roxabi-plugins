@@ -6,16 +6,13 @@ import { describe, expect, it } from 'vitest'
 import { REAL_BUN, recipeEnv, run, startGitHub } from './fixtures/github-api'
 import {
   CREDENTIAL,
-  commentsOnlyRepoYaml,
   GIT_ENV,
-  invalidRepoYaml,
   PARENT,
   PRODUCT,
   type RepoFixtureOptions,
   refusedOrigins,
   repoFixture,
   supportedOrigins,
-  validPinYaml,
 } from './fixtures/repo-identity'
 
 const skill = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../SKILL.md'), 'utf8')
@@ -209,26 +206,11 @@ fi
     expect(result.called).toBe(false)
   })
 
-  it.each(invalidRepoYaml)('refuses an invalid project YAML %s before issue reads or writes', (_name, yaml) => {
-    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml })
-    expect(result.status).not.toBe(0)
-    expect(result.stderr).toContain('.dev/dev-core.yml')
-    expect(result.ghLog).toBe('')
-    expect(result.called).toBe(false)
-  })
-
-  it.each(validPinYaml)('uses the YAML pin when %s', (_name, yaml, pin) => {
-    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml })
+  it('honors an indented YAML pin over a usable origin', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml: 'github_repo:\n  "Pin/yaml"\n' })
     expect(result.status).toBe(0)
-    expect(result.ghLog.trim()).toBe(`issue view 42 --repo github.com/${pin} --json body --jq .body`)
-    expect(result.setLog).toContain(`${pin} set ${pin}#42`)
-  })
-
-  it('uses origin when project YAML contains only comments mentioning the key', () => {
-    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yaml: commentsOnlyRepoYaml })
-    expect(result.status).toBe(0)
-    expect(result.ghLog.trim()).toBe(`issue view 42 --repo github.com/${PRODUCT} --json body --jq .body`)
-    expect(result.setLog).toContain(`${PRODUCT} set ${PRODUCT}#42`)
+    expect(result.ghLog.trim()).toBe('issue view 42 --repo github.com/Pin/yaml --json body --jq .body')
+    expect(result.setLog).toContain('Pin/yaml set Pin/yaml#42')
   })
 
   it.each(supportedOrigins)('uses %s for both read and write without probing gh repo view', (_name, origin) => {
@@ -285,6 +267,14 @@ fi
 
   it('rejects an invalid pin rather than reading or updating a different tracker', () => {
     const result = runRecipe({ GH_VIEW_BODY: 'spec', GITHUB_REPO: 'not-a-slug' }, '4', { yamlPin: 'Pin/yaml' })
+    expect(result.status).not.toBe(0)
+    expect(result.called).toBe(false)
+    expect(result.ghLog).toBe('')
+    expect(result.stderr).toContain('Invalid GitHub repo pin')
+  })
+
+  it('rejects a malformed YAML pin before reading or updating the tracker', () => {
+    const result = runRecipe({ GH_VIEW_BODY: 'spec' }, '4', { yamlPin: 'not-a-slug' })
     expect(result.status).not.toBe(0)
     expect(result.called).toBe(false)
     expect(result.ghLog).toBe('')

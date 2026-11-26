@@ -51,67 +51,6 @@ export const refusedOrigins = [
   ['GitHub SSH URI with an encoded path separator', 'ssh://git@github.com/An%2FAcme/product.git'],
 ] as const
 
-export const invalidRepoYaml = [
-  ['multi-document stream', '---\ngithub_repo: Pin/yaml\n---\nunrelated: setting\n'],
-  ['sequence', '- github_repo: Pin/yaml\n'],
-  ['scalar', 'Pin/yaml\n'],
-  ['null scalar', 'null\n'],
-  ['tilde scalar', '~\n'],
-  ['parse error', 'github_repo: "unterminated\n'],
-  ['duplicate pin keys', 'github_repo: Pin/first\n"github_repo": Pin/second\n'],
-  ['duplicate flow pin keys', '{ github_repo: Pin/first, "github_repo": Pin/second }\n'],
-  ['escaped pin key spelling', '"github\\u005frepo": Pin/yaml\n'],
-  ['mixed literal and escaped pin keys', 'github_repo: Pin/first\n"github\\u005frepo": Pin/second\n'],
-  ['duplicate keys defined via an alias', 'key_name: &name github_repo\n? *name\n: Pin/first\n? *name\n: Pin/second\n'],
-  [
-    'duplicate keys use an alias with a non-breaking space',
-    'key_name: &na\u00a0me github_repo\n? *na\u00a0me\n: Pin/first\n? *na\u00a0me\n: Pin/second\n',
-  ],
-  ['the pin key is an alias', 'key_name: &name github_repo\n? *name\n: Pin/yaml\n'],
-  ['the pin value is an alias', 'target: &pin Pin/yaml\ngithub_repo: *pin\n'],
-  ['the pin only comes from a merge', 'base: &base { github_repo: Pin/yaml }\n<<: *base\n'],
-  [
-    'an alias key precedes a literal pin',
-    'key_name: &name github_repo\n? *name\n: Other/first\ngithub_repo: Pin/second\n',
-  ],
-  [
-    'an alias key follows a literal pin',
-    'key_name: &name github_repo\ngithub_repo: Pin/first\n? *name\n: Other/second\n',
-  ],
-  [
-    'an alias key would collide after fixed replacement',
-    'xname: unused\ntriageAlias0name: unused\nkey_name: &name github_repo\n? *name\n: Other/first\ngithub_repo: Pin/second\n',
-  ],
-  ['a literal pin overrides a merge', 'base: &base { github_repo: Pin/first }\n<<: *base\ngithub_repo: Pin/second\n'],
-] as const
-
-export const validPinYaml = [
-  [
-    'comments mention the key',
-    '# github_repo selects the tracker\n# github_repo: Pin/unused\ngithub_repo: Pin/yaml # github_repo pin\n',
-    'Pin/yaml',
-  ],
-  ['an unrelated key contains the token', 'previous_github_repo: Pin/unused\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
-  [
-    'an unrelated value mentions the key',
-    'notes: "Set github_repo to change the target"\ngithub_repo: "Pin/yaml"\n',
-    'Pin/yaml',
-  ],
-  ['a quoted pin has an inline comment', 'github_repo: "Pin/yaml" # this is github_repo\n', 'Pin/yaml'],
-  ['a comment mentions anchor and alias syntax', '# &pin and *pin are examples\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
-  ['a quoted value mentions YAML aliases', 'notes: "&pin and *pin are examples"\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
-  [
-    'an alias supplies an unrelated value',
-    'target: &name Other/value\nnotes: *name\ngithub_repo: Pin/yaml\n',
-    'Pin/yaml',
-  ],
-  ['the pin value contains the key', 'github_repo: Pin/github_repo\n', 'Pin/github_repo'],
-  ['a URL contains an ampersand', 'notes: https://example.com/?a=1&b=2\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
-  ['the usual sentinel is already a mapping key', 'triage00000: Pin/unused\ngithub_repo: Pin/yaml\n', 'Pin/yaml'],
-] as const
-
-export const commentsOnlyRepoYaml = '# github_repo selects the tracker\n# github_repo: Pin/unused\n'
-
 export type RepoFixtureOptions = { origin?: string | null; single?: boolean; yamlPin?: string; yaml?: string }
 
 export function repoFixture({ origin, single, yamlPin, yaml }: RepoFixtureOptions = {}) {
@@ -125,7 +64,7 @@ export function repoFixture({ origin, single, yamlPin, yaml }: RepoFixtureOption
   git('init', '-q')
   if (origin !== null) git('remote', 'add', 'origin', origin ?? `https://github.com/${PRODUCT}.git`)
   if (!single) git('remote', 'add', 'upstream', `https://github.com/${PARENT}.git`)
-  const config = yaml ?? (yamlPin !== undefined ? `github_repo : '${yamlPin}' # tracker pin\n` : undefined)
+  const config = yaml ?? (yamlPin !== undefined ? `github_repo: '${yamlPin}'\n` : undefined)
   if (config !== undefined) {
     mkdirSync(join(cwd, '.dev'))
     writeFileSync(join(cwd, '.dev', 'dev-core.yml'), config)

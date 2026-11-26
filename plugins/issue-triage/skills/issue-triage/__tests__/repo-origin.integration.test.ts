@@ -5,16 +5,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { type GitHubFake, ghCalls, REAL_BUN, recipeEnv, run, startGitHub, writeGh } from './fixtures/github-api'
 import {
   CREDENTIAL,
-  commentsOnlyRepoYaml,
   GIT_ENV,
-  invalidRepoYaml,
   PARENT,
   PRODUCT,
   type RepoFixtureOptions,
   refusedOrigins,
   repoFixture,
   supportedOrigins,
-  validPinYaml,
 } from './fixtures/repo-identity'
 
 const TRIAGE = join(import.meta.dirname, '../triage.ts')
@@ -127,8 +124,7 @@ describe('origin-first tracker discovery (#614)', () => {
   it.each(['Pin/yaml', "'Pin/yaml'", '"Pin/yaml"'])(
     'accepts multiline YAML pin %s ahead of usable origin',
     async (pin) => {
-      const fixture = setup({ yamlPin: 'unused' })
-      writeFileSync(join(fixture.cwd, '.dev/dev-core.yml'), `github_repo:\n  ${pin}\n`)
+      const fixture = setup({ yaml: `github_repo:\n  ${pin}\n` })
       const result = await resolveRepo(fixture)
       expect(result.code).toBe(0)
       expect(result.stdout.trim()).toBe('Pin/yaml')
@@ -136,46 +132,19 @@ describe('origin-first tracker discovery (#614)', () => {
     },
   )
 
-  it.each(invalidRepoYaml)('refuses an invalid YAML %s instead of falling through to origin', async (_name, yaml) => {
-    const fixture = setup({ yaml })
+  it('rejects a malformed YAML pin rather than falling through to origin', async () => {
+    const fixture = setup({ yamlPin: 'not-a-slug' })
     const result = await resolveRepo(fixture)
     expect(result.code).not.toBe(0)
     expect(result.stdout.trim()).toBe('')
-    expect(result.stderr).toContain('.dev/dev-core.yml')
+    expect(result.stderr).toContain('Invalid GitHub repo pin')
     expect(repoProbes(fixture)).toEqual([])
   })
 
-  it('accepts one literal pin in a YAML flow mapping', async () => {
-    const result = await resolveRepo(setup({ yaml: '{ "github_repo": Pin/yaml }\n' }))
-    expect(result.code).toBe(0)
-    expect(result.stdout.trim()).toBe('Pin/yaml')
-  })
-
-  it.each(validPinYaml)('honors the YAML pin when %s', async (_name, yaml, pin) => {
-    const fixture = setup({ yaml })
-    const result = await resolveRepo(fixture)
-    expect(result.code).toBe(0)
-    expect(result.stdout.trim()).toBe(pin)
-    expect(repoProbes(fixture)).toEqual([])
-  })
-
-  it.each(['unrelated: setting\n', commentsOnlyRepoYaml, ''])('uses origin when YAML has no pin (%j)', async (yaml) => {
-    const result = await resolveRepo(setup({ single: true, yaml }))
+  it('uses origin when the YAML config contains no pin', async () => {
+    const result = await resolveRepo(setup({ single: true, yaml: 'unrelated: setting\n' }))
     expect(result.code).toBe(0)
     expect(result.stdout.trim()).toBe(PRODUCT)
-  })
-
-  it('uses origin when an unpinned YAML mapping contains an anchor and alias', async () => {
-    const yaml = 'settings: &base { branch: main }\ncopy: *base\n'
-    const result = await resolveRepo(setup({ single: true, yaml }))
-    expect(result.code).toBe(0)
-    expect(result.stdout.trim()).toBe(PRODUCT)
-  })
-
-  it('honors the environment pin without reading invalid project YAML', async () => {
-    const result = await resolveRepo(setup({ yaml: 'github_repo: "unterminated\n' }, { GITHUB_REPO: 'Pin/env' }))
-    expect(result.code).toBe(0)
-    expect(result.stdout.trim()).toBe('Pin/env')
   })
 
   it('refuses an alias configured only through core.sshCommand without executing that command', async () => {

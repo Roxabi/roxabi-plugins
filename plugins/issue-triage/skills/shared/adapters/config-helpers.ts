@@ -16,106 +16,18 @@ import { ConfigError } from '../domain/errors'
  */
 const DEV_CORE_YML = '.dev/dev-core.yml'
 
-function parseRepoConfig(yaml: string): Record<string, unknown> | undefined {
-  let document: unknown
-  try {
-    document = Bun.YAML.parse(yaml)
-  } catch {
-    throw new ConfigError(`Cannot parse ${DEV_CORE_YML}. Set GITHUB_REPO or correct the YAML.`)
-  }
-  if (document === null || document === undefined) {
-    const empty = yaml.split(/\r\n?|\n/).every((line) => {
-      const text = line.trimStart()
-      return !text || text.startsWith('#')
-    })
-    if (empty) return undefined
-  }
-  if (!document || typeof document !== 'object' || Array.isArray(document)) {
-    throw new ConfigError(`${DEV_CORE_YML} must contain a single YAML mapping. Set GITHUB_REPO or correct the YAML.`)
-  }
-  return document as Record<string, unknown>
-}
-
-function repoPin(): unknown {
+function repoPin(): string | undefined {
   if (process.env.GITHUB_REPO) return process.env.GITHUB_REPO
 
-  let yaml: string
   try {
-    yaml = readFileSync(DEV_CORE_YML, 'utf-8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    return undefined
+    const yaml = readFileSync(DEV_CORE_YML, 'utf-8')
+    const match = yaml.match(/^github_repo:\s*['"]?(.+?)['"]?\s*$/m)
+    const value = match?.[1]
+    if (value && value !== "''") return value
+  } catch {
+    /* file not found — fall through */
   }
-
-  const key = 'github_repo'
-  const document = parseRepoConfig(yaml)
-  if (!document || !Object.hasOwn(document, key)) return undefined
-  const value = document[key]
-
-  // Remove alias syntax before checking the pin. Preserve both the value and
-  // the top-level keys so an alias key or merge cannot hide a conflicting pin.
-  let neutral = yaml
-  let neutralDocument = document
-  if (yaml.includes('*')) {
-    const keys = Object.keys(document)
-    let suffix = 0
-    let marker: string
-    do {
-      marker = `triageAlias${suffix}`
-      suffix += 1
-    } while (yaml.includes(marker) || keys.some((name) => name.includes(marker)))
-
-    neutral = yaml.replaceAll('*', marker)
-    let parsed: Record<string, unknown> | undefined
-    try {
-      parsed = parseRepoConfig(neutral)
-    } catch {
-      // Neutralized YAML must still be a single mapping.
-    }
-    if (
-      !parsed ||
-      !Object.is(parsed[key], value) ||
-      Object.keys(parsed).length !== keys.length ||
-      !keys.every((name) => Object.hasOwn(parsed, name))
-    ) {
-      throw new ConfigError(
-        `Ambiguous github_repo in ${DEV_CORE_YML}: alias-dependent pins, alias keys, and merges are unsupported.`,
-      )
-    }
-    neutralDocument = parsed
-  }
-
-  // Bun silently overwrites duplicate YAML keys. Find the unique spelling
-  // whose rename moves the parsed key without changing its value.
-  let suffix = 0
-  let sentinel: string
-  do {
-    sentinel = `triage${suffix.toString(36).padStart(5, '0')}`
-    suffix += 1
-  } while (neutral.includes(sentinel) || Object.hasOwn(neutralDocument, sentinel))
-
-  let keyMatches = 0
-  for (const { index } of neutral.matchAll(/(?<![A-Za-z0-9_-])github_repo(?![A-Za-z0-9_-])/g)) {
-    let renamed: Record<string, unknown> | undefined
-    try {
-      renamed = parseRepoConfig(`${neutral.slice(0, index)}${sentinel}${neutral.slice(index + key.length)}`)
-    } catch {
-      continue
-    }
-    if (
-      renamed &&
-      !Object.hasOwn(renamed, key) &&
-      Object.hasOwn(renamed, sentinel) &&
-      Object.is(renamed[sentinel], value)
-    ) {
-      keyMatches += 1
-      if (keyMatches > 1) break
-    }
-  }
-  if (keyMatches !== 1) {
-    throw new ConfigError(`Ambiguous github_repo key in ${DEV_CORE_YML}. Set GITHUB_REPO or use one literal key.`)
-  }
-  return value === '' || value === null ? undefined : value
+  return undefined
 }
 
 /**
@@ -245,7 +157,7 @@ function originRepo(url: string): string | undefined {
 export function detectGitHubRepo({ notice = true } = {}): string {
   const pin = repoPin()
   if (pin !== undefined) {
-    if (typeof pin === 'string' && REPO_SLUG_RE.test(pin)) return pin
+    if (REPO_SLUG_RE.test(pin)) return pin
     throw new ConfigError('Invalid GitHub repo pin. Expected "owner/repo" in GITHUB_REPO or .dev/dev-core.yml.')
   }
 
