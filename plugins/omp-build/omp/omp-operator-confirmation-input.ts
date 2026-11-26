@@ -37,8 +37,9 @@ const bindings: ReadonlyArray<readonly [Parameters<Bindings['matches']>[1], Dial
 ]
 
 export function operatorDialogInput(key: KeyEvent, keys: Bindings): DialogInput {
-  if (key.kind === 'release' || key.afterPaste) return 'none'
+  if (key.kind === 'release') return 'none'
   if (keys.matches(key, 'tui.select.cancel')) return 'cancel'
+  if (key.afterPaste) return 'none'
   if (key.text && Object.hasOwn(shortcuts, key.text)) return shortcuts[key.text] ?? 'none'
   for (const [binding, action] of bindings) {
     if (keys.matches(key, binding)) return action

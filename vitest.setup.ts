@@ -1,7 +1,7 @@
 import type * as ChildProcess from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { load as parseYaml } from 'js-yaml'
+import { CORE_SCHEMA, intCoreTag, load as parseYaml } from 'js-yaml'
 import { afterAll, afterEach, expect, vi } from 'vitest'
 import { unitSdkRoots } from './plugins/omp-build/testing/unit-sdk-scopes.ts'
 
@@ -32,7 +32,7 @@ vi.mock('@oh-my-pi/pi-tui/tools/task', () => ({
     throw new Error('SDK task activity formatting is unavailable in the Node test host')
   },
 }))
-// Tests exercise real retained UI nodes without starting the Bun-only terminal host.
+// Headless workers have no native host. Native tests opt in and use the real reconciler for geometry.
 vi.mock('@oh-my-pi/pi-tui/host', () => ({
   nativeRendering: vi.fn(() => false),
   nativeSupports: vi.fn(() => false),
@@ -187,6 +187,18 @@ patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
   return fn.apply(self, args)
 })
 
+// Bun permits signed hex and octal in its core schema without enabling YAML 1.1 scalars.
+const bunYamlSchema = CORE_SCHEMA.withTags({
+  ...intCoreTag,
+  resolve(source, explicit, tag) {
+    if (/^[+-]0[xo]/.test(source)) {
+      const magnitude = intCoreTag.resolve(source.slice(1), explicit, tag)
+      if (typeof magnitude === 'number') return source[0] === '-' ? -magnitude : magnitude
+    }
+    return intCoreTag.resolve(source, explicit, tag)
+  },
+})
+
 /**
  * Bun global shim for Vitest (Node.js worker) environment.
  *
@@ -201,8 +213,7 @@ patchable.execFileSync = wrap(patchable.execFileSync, (fn, self, args) => {
 if (typeof globalThis.Bun === 'undefined') {
   // biome-ignore lint/suspicious/noExplicitAny: bun-types makes the Bun global too complex to satisfy without any
   ;(globalThis as any).Bun = {
-    // js-yaml 5's core schema is the default and keeps bare dates as strings, like Bun.
-    YAML: { parse: parseYaml },
+    YAML: { parse: (text: string) => parseYaml(text, { schema: bunYamlSchema }) },
     spawnSync: (
       cmd: string[],
       opts?: {

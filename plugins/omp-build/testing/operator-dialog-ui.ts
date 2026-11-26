@@ -1,7 +1,12 @@
 import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { KeyEvent } from '@oh-my-pi/pi-tui'
-import { decodeInput } from '@oh-my-pi/pi-tui/driver/input/decoder'
+import { bubbleEvent, bubbleKey, bubblePaste, keypathOf } from '@oh-my-pi/pi-tui/dispatch'
+import { InputDecoder } from '@oh-my-pi/pi-tui/driver/input/decoder'
+import { Reconciler } from '@oh-my-pi/pi-tui/native/reconcile'
 import { isUiNode, type UiNode } from '@oh-my-pi/pi-tui/node'
+import { computed, signal } from '@oh-my-pi/pi-tui/reactive'
+import { createSurface } from '@oh-my-pi/pi-tui/surface'
+import type { PageProps } from '@oh-my-pi/pi-tui/types'
 import type { OperatorChoice } from '../omp/omp-operator-confirmation-input.ts'
 
 /** One fictional root identity with the stable live mappings required by the real confirmation port. */
@@ -38,11 +43,90 @@ export const operatorDialogKeybindings = {
   },
 }
 
-export function sendDialogInput(view: UiNode, data: string): void {
-  for (const event of decodeInput(data)) {
-    if (event.type === 'key') view.handlers.onKey?.(event.key)
-    if (event.type === 'paste') view.handlers.onPaste?.(event.paste)
+export function dialogInputReader(view: UiNode): (data: string) => boolean {
+  const path = [view]
+  let handled = true
+  const decoder = new InputDecoder({
+    input(event) {
+      if (event.type === 'key') handled = bubbleKey(path, event.key) && handled
+      if (event.type === 'paste') handled = bubblePaste(path, event.paste) && handled
+    },
+    reply() {},
+  })
+  return (data) => {
+    handled = true
+    decoder.process(data)
+    // Advance past the ambiguity timeout only for a standalone Escape, not an incomplete paste.
+    if (data === '\u001b' && !decoder.inPaste) decoder.flush()
+    return handled
   }
+}
+
+/** Reconcile against Tern's independent width signal without starting a terminal transport. */
+export function nativeDialogFrames(page: UiNode, terminal: { columns: number; rows: number }) {
+  const columns = signal(terminal.columns)
+  const surface = createSurface(() => {
+    const parts = computed(() => nativePageParts(page))
+    return { main: () => parts().main, dock: () => parts().dock }
+  })
+  const reconciler = new Reconciler(
+    surface,
+    'test',
+    { cols: columns, rows: () => terminal.rows, hasFeature: () => false },
+    () => {},
+  )
+  surface.focus(page)
+  return {
+    columns,
+    present: () => reconciler.reconcile(),
+    dispose() {
+      reconciler.dispose()
+      surface.dispose()
+    },
+  }
+}
+
+function nativeActions(node: UiNode, ancestors: readonly UiNode[]): { node: UiNode; act: string; path: UiNode[] }[] {
+  const props = node.props()
+  if (props.hidden) return []
+  const path = [...ancestors, node]
+  const unavailable = ('disabled' in props && props.disabled) || ('busy' in props && props.busy)
+  const act = props.actions?.click
+  return [
+    ...(act && !unavailable ? [{ node, act, path }] : []),
+    ...node.children().flatMap((child) => nativeActions(child, path)),
+  ]
+}
+
+function nativePageParts(root: UiNode) {
+  const props = root.props() as { page?: PageProps; hidden?: boolean }
+  if (root.kind !== 'overlay' || !props.page || props.hidden) throw new Error('Expected a visible fullscreen page')
+  // NativeSurfaces splits the overlay's children into the page main and its trailing dock.
+  const children = root.children()
+  const dockAt = Math.max(0, children.length - (props.page.dock ?? 0))
+  return { main: children.slice(0, dockAt), dock: children.slice(dockAt) }
+}
+
+export function renderNativePage(root: UiNode) {
+  const { main, dock } = nativePageParts(root)
+  const actions = dock.flatMap((child) => nativeActions(child, [root]))
+  return {
+    main: main.map(nativeText).join('\n'),
+    actions,
+    click(act: string): boolean {
+      const target = actions.find((candidate) => candidate.act === act)
+      if (!target) return false
+      return bubbleEvent(target.path, { type: 'action', key: keypathOf(target.path), act, mods: [] })
+    },
+  }
+}
+
+function nativeText(node: UiNode | undefined): string {
+  if (!node) return ''
+  const props = node.props()
+  return ['text' in props && typeof props.text === 'string' ? props.text : '', ...node.children().map(nativeText)].join(
+    '\n',
+  )
 }
 
 type CustomFactory = Parameters<ExtensionContext['ui']['custom']>[0]
@@ -55,8 +139,10 @@ function mountTerminalDialog(
 ) {
   const result = Promise.withResolvers<unknown>()
   const signal = options?.signal
-  const abort = () => finish(() => result.reject(signal?.reason))
+  const reject = (reason: unknown) => finish(() => result.reject(reason))
+  const abort = () => reject(signal?.reason)
   const finish = (settle: () => void) => {
+    if (canvas.disposed) return
     signal?.removeEventListener('abort', abort)
     canvas.dispose()
     settle()
@@ -71,11 +157,12 @@ function mountTerminalDialog(
   const canvas = output as UiNode<'canvas'>
   if (signal?.aborted) abort()
   else signal?.addEventListener('abort', abort, { once: true })
+  const read = dialogInputReader(canvas)
   const view: MountedOperatorDialog = {
     render: (width) => canvas.props().paint(width),
-    handleInput: (data) => sendDialogInput(canvas, data),
+    handleInput: (data) => !canvas.disposed && read(data),
   }
-  return { view, result: result.promise }
+  return { view, result: result.promise, reject }
 }
 
 function readDialog(view: MountedOperatorDialog, width: number): string {
@@ -97,7 +184,7 @@ export function operatorDialogUi(
 ): ExtensionContext['ui'] {
   const custom = async (factory: CustomFactory, options: CustomOptions) => {
     const terminal = { rows: 18, columns: 80 }
-    const { view: mounted, result } = mountTerminalDialog(factory, options, terminal)
+    const { view: mounted, result, reject } = mountTerminalDialog(factory, options, terminal)
     if (onDisplay) onDisplay(readDialog(mounted, terminal.columns))
     else mounted.render(terminal.columns)
     if (onDetails) {
@@ -106,8 +193,11 @@ export function operatorDialogUi(
       mounted.handleInput?.('d')
       mounted.render(terminal.columns)
     }
-    const choice = await decide()
-    mounted.handleInput?.(choice === 'confirm' ? 'c' : choice === 'refuse' ? 'r' : '\u001b')
+    void Promise.try(decide)
+      .then((choice) => {
+        mounted.handleInput?.(choice === 'confirm' ? 'c' : choice === 'refuse' ? 'r' : '\u001b')
+      })
+      .catch(reject)
     return result
   }
   return { custom } as unknown as ExtensionContext['ui']

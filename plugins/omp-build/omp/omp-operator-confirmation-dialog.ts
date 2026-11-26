@@ -2,7 +2,7 @@ import type { ExtensionContext } from '@oh-my-pi/pi-coding-agent'
 import type { KeyEvent } from '@oh-my-pi/pi-tui'
 import { jsx } from '@oh-my-pi/pi-tui/element'
 import { nativeRendering, nativeSupports } from '@oh-my-pi/pi-tui/host'
-import { computed, signal as revisionSignal } from '@oh-my-pi/pi-tui/reactive'
+import { computed, onCleanup, signal as revisionSignal } from '@oh-my-pi/pi-tui/reactive'
 import type { PreparedOperatorProposal } from '../roxabi/uw-contract.ts'
 import { nativeText } from './omp-operator-confirmation-field.ts'
 import { framingDetails } from './omp-operator-confirmation-framing.ts'
@@ -92,6 +92,7 @@ export async function showOperatorProposal(
       }
       const body = summary.slice(1)
       let closed = false
+      let pasted = false
       let renderedColumns: number | undefined
       let actionable = false
       const finish = (choice: OperatorChoice) => {
@@ -111,18 +112,26 @@ export async function showOperatorProposal(
         else if (ready(native) && commitDialogInput(motion, action, finish)) revision.update((n) => n + 1)
       }
       const onKey = (native: boolean) => (key: KeyEvent) => {
-        input(operatorDialogInput(key, keys), native)
+        const action = operatorDialogInput(key, keys)
+        // The decoder only marks the first key in the paste read; require an explicit other action to rearm.
+        if (pasted && (action === 'confirm' || action === 'select')) return true
+        if (action !== 'none') pasted = false
+        input(action, native)
+        return true
+      }
+      const onPaste = () => {
+        pasted = true
         return true
       }
       const onNativeAction = (action: NativeChoice) => input(action === 'defer' ? 'cancel' : action, true)
       if (!nativeRendering()) {
         return jsx('canvas', {
           onKey: onKey(false),
-          onPaste: () => true,
+          onPaste,
           paint(columns: number) {
             revision()
             const size = ui.size()
-            renderedColumns = size.columns
+            renderedColumns = columns
             motion.height = size.rows
             const layout = operatorDialogLayout(
               columns,
@@ -160,19 +169,7 @@ export async function showOperatorProposal(
           role: 'omp.editor.ask.confirmation',
           gap: 'sm',
           children: [
-            jsx(
-              'text',
-              {
-                text: () => {
-                  // Focusing the page reads its children before the native backend describes them.
-                  renderedColumns = ui.size().columns
-                  return title
-                },
-                tone: 'accent',
-                wrap: 'word',
-              },
-              'title',
-            ),
+            jsx('text', { text: title, tone: 'accent', wrap: 'word' }, 'title'),
             jsx(
               'row',
               {
@@ -198,8 +195,26 @@ export async function showOperatorProposal(
         size: 'full',
         page: { role: 'omp.operator.confirmation', dock: 1 },
         onKey: onKey(true),
-        onPaste: () => true,
-        children: [content, dock],
+        onPaste,
+        children: [
+          content,
+          jsx(
+            'canvas',
+            {
+              hidden: true,
+              // Only the reconciler paints; it supplies the independently tracked Tern width.
+              paint(columns: number) {
+                renderedColumns = columns
+                onCleanup(() => {
+                  renderedColumns = undefined
+                })
+                return []
+              },
+            },
+            'viewport',
+          ),
+          dock,
+        ],
       })
     },
     { overlay: true, fullscreen: true, signal },
