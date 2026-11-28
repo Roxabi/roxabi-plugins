@@ -31,18 +31,33 @@ commit-msg:
 # the strict up-to-date rule makes run on the proposed merge with current `main`.
 pre-push:
   parallel: true
-  commands:
-    unit:
-      run: bunx vitest run --project unit
-    lint:
-      run: bun lint
-    typecheck:
-      run: bun typecheck
-    trufflehog:
-      run: scripts/trufflehog-check.sh
-    principal-freeze:
-      run: bash scripts/check-principal-branch.sh
-    check-no-claude-comments:
-      run: scripts/check-no-claude-comments.sh
-    check-skill-version:
-      run: scripts/check-skill-version.sh
+  # Lefthook skips pre-push commands when HEAD has no diff against origin/main.
+  scripts:
+    unit.sh:
+      runner: bash
+      args: "--"
+      priority: 1
+    lint.sh:
+      runner: bash
+      args: "--"
+      priority: 2
+    typecheck.sh:
+      runner: bash
+      args: "--"
+      priority: 3
+    trufflehog.sh:
+      runner: bash
+      args: "--"
+      priority: 4
+    principal-freeze.sh:
+      runner: bash
+      args: "--"
+      priority: 5
+    check-no-claude-comments.sh:
+      runner: bash
+      args: "--"
+      priority: 6
+    check-skill-version.sh:
+      runner: bash
+      args: "--"
+      priority: 7
