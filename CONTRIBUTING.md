@@ -124,10 +124,13 @@ passing test. Local `bun run test` still runs both complete projects.
 
 The lefthook `pre-push` hook runs fast checks only: the unit project, `bun lint`,
 `bun typecheck`, the secret scan, the principal-branch freeze, the comment
-marker check and the plugin version gate. The integration project runs in the
-required `ci` check, which the strict up-to-date rule makes run on the proposed
-merge with current `main`. Run `bunx vitest run --project integration <file>`
-locally when a change touches what an integration file exercises.
+marker check and the plugin version gate. It dispatches scripts from
+`.lefthook/pre-push/` in parallel, even when the checked-out `HEAD` matches
+`origin/main` and Git is pushing another branch. Each gate keeps its own input
+scope. The integration project runs in the required `ci` check, which the
+strict up-to-date rule makes run on the proposed merge with current `main`. Run
+`bunx vitest run --project integration <file>` locally when a change touches
+what an integration file exercises.
 
 A shard selects its files through literal include globs, so integration test
 paths may contain only ASCII letters and digits, `.`, `_`, `/` and `-`. CI
